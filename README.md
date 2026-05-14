@@ -1,95 +1,132 @@
-# GPU-accelerated Resource-Efficient QuDDPM-lite Benchmark
+# GPU 기반 자원 효율적 QuDDPM-lite 벤치마크
 
-Pure PyTorch benchmark for a resource-efficient **QuDDPM-lite / MSQuDDPM-lite** project. This is not presented as a full paper reproduction; it is a runnable simulation benchmark for 6-qubit density-matrix experiments with CUDA acceleration when available.
+이 프로젝트는 2026 양자정보경진대회 지정주제 3번 **Quantum Machine Learning** 지원서에 넣을 수 있는 프로젝트 수행 경험을 목표로 만든 순수 PyTorch 기반 시뮬레이션 벤치마크입니다.
 
-## What Was Built
+전체 QuDDPM 논문을 완전 재현한다고 표현하지 않고, 실제 구현 가능한 범위의 **QuDDPM-lite / MSQuDDPM-lite / resource-efficient benchmark**로 정리했습니다.
 
-- 6-qubit quantum state ensemble generation with product-clustered, entangled-clustered, and Bell-pair product states.
-- Depolarizing forward diffusion:
+## 프로젝트 개요
+
+6-qubit quantum state ensemble에 forward diffusion을 적용한 뒤, quantum-inspired denoiser가 원래 clean state를 얼마나 잘 복원하는지 비교했습니다.
+
+핵심 조건:
+
+- 기본 실험: 6-qubit density matrix
+- Hilbert dimension: `64`
+- density matrix shape: `64 x 64`
+- tensor dtype: `torch.complex64`
+- CUDA 사용 가능 시 자동 GPU 사용
+- CUDA가 없으면 CPU fallback
+- Qiskit, PennyLane, TensorCircuit 없이 순수 PyTorch simulation으로 구현
+
+## 구현한 내용
+
+- 6-qubit quantum state ensemble 생성
+  - product clustered states
+  - entangled clustered states
+  - Bell-pair product states
+- depolarizing noise channel 기반 forward diffusion 구현
+- random-unitary scrambling 기반 QuDDPM-lite baseline 구현
+- MSQuDDPM-lite denoiser 구현
+- T-MSQuDDPM-lite temporal parameter sharing 구조 구현
+- seed 3개 반복 실험
+- `T=10 vs T=20` ablation
+- `depth=2 vs depth=4` ablation
+- fidelity, MMD, Wasserstein distance 계산
+- parameter count, estimated circuit depth, two-qubit gate count, runtime, GPU memory 기록
+- 결과 CSV와 PNG 자동 저장
+
+Depolarizing channel:
 
 ```text
 rho_noisy = (1 - beta) * rho + beta * I / dim
 ```
 
-- MSQuDDPM-lite denoiser using a quantum-inspired RY/RZ state generator.
-- QuDDPM-lite random-unitary baseline with random single-qubit rotations and CZ/CNOT entangling layers.
-- T-MSQuDDPM-lite with temporal parameter sharing and sin/cos time embeddings.
-- GPU-batched fidelity, fidelity-kernel MMD, and POT Sinkhorn Wasserstein evaluation.
-- Resource metrics: trainable parameters, estimated circuit depth, two-qubit gate count, runtime, GPU memory, and diffusion steps.
+## 비교 모델
 
-## Verified Run
+| 모델 | 설명 |
+|---|---|
+| MSQuDDPM-lite | depolarizing forward process와 RY/RZ 기반 quantum-inspired denoiser 사용 |
+| QuDDPM-lite baseline | random single-qubit rotation + CZ/CNOT entangling layer 기반 random-unitary scrambling 사용 |
+| T-MSQuDDPM-lite | MSQuDDPM-lite에 temporal parameter sharing과 sin/cos time embedding 추가 |
 
-The completed run used the `twohour` preset from [twohour_conditions.md](twohour_conditions.md).
+## 검증된 실행 조건
+
+본 README의 결과는 `twohour` preset으로 생성했습니다.
 
 ```bash
 python main.py --preset twohour --results-dir results_twohour
 python verify_results.py --results-dir results_twohour
 ```
 
-Validation passed:
+검증 결과:
 
 ```text
 Verified 36 benchmark rows in results_twohour
 ```
 
-Run conditions:
+실험 조건:
 
-| Item | Value |
+| 항목 | 값 |
 |---|---:|
-| Qubits | 6 |
-| Input mode | density matrix |
+| qubits | 6 |
+| input mode | density matrix |
 | Hilbert dimension | 64 |
-| Density matrix | 64 x 64 complex64 |
-| Dataset size | 512 |
-| Epochs | 400 |
-| Batch size | 128 |
-| Seeds | 0, 1, 2 |
-| Noise steps | 10, 20 |
+| density matrix | 64 x 64 complex64 |
+| dataset size | 512 |
+| epochs | 400 |
+| batch size | 128 |
+| seeds | 0, 1, 2 |
+| noise steps | 10, 20 |
 | PQC depth | 2, 4 |
-| Device used | cuda |
-| Total recorded train runtime | 48.87 min |
-| Peak recorded GPU memory | 52.65 MB |
+| device | cuda |
+| recorded train runtime | 48.87 min |
+| peak recorded GPU memory | 52.65 MB |
 
-## Results
+## 실험 결과 요약
 
-Overall mean across seeds, `T = 10/20`, and depth `2/4`:
+seed 3개, `T=10/20`, `depth=2/4` 전체 평균입니다.
 
-| Model | Fidelity ↑ | MMD ↓ | Wasserstein ↓ | Avg Runtime / Row |
+| 모델 | Fidelity ↑ | MMD ↓ | Wasserstein ↓ | 평균 runtime / row |
 |---|---:|---:|---:|---:|
 | MSQuDDPM-lite | 0.8012 | 0.0245 | 0.2182 | 74.42 s |
 | QuDDPM-lite baseline | 0.2051 | 0.4552 | 0.7168 | 95.77 s |
 | T-MSQuDDPM-lite | 0.7927 | 0.0257 | 0.2258 | 74.14 s |
 
-Best high-fidelity settings in this run:
+높은 fidelity를 보인 설정:
 
-| Model | T | Depth | Fidelity Mean |
+| 모델 | T | Depth | Fidelity mean |
 |---|---:|---:|---:|
 | MSQuDDPM-lite | 20 | 4 | 0.9078 |
 | MSQuDDPM-lite | 10 | 4 | 0.9066 |
 | T-MSQuDDPM-lite | 10 | 4 | 0.9037 |
 | T-MSQuDDPM-lite | 20 | 4 | 0.8880 |
 
-The random-unitary baseline is intentionally harder in this lite benchmark because the forward process scrambles states more aggressively than the depolarizing channel. The temporal sharing model keeps nearly the same fidelity profile as MSQuDDPM-lite while using slightly fewer trainable parameters.
+결과 해석:
 
-## Figures
+- MSQuDDPM-lite는 depolarizing noise 복원에서 높은 fidelity를 보였습니다.
+- T-MSQuDDPM-lite는 parameter sharing을 적용했음에도 MSQuDDPM-lite와 유사한 성능을 유지했습니다.
+- QuDDPM-lite random-unitary baseline은 forward process가 더 강하게 state를 scramble하기 때문에 fidelity가 낮고 MMD/Wasserstein이 크게 나타났습니다.
+- depth 4 설정이 depth 2보다 fidelity 측면에서 뚜렷하게 유리했습니다.
 
-### Fidelity Comparison
+## 결과 Figure
+
+### Fidelity 비교
 
 ![Fidelity comparison](results_twohour/fidelity_comparison.png)
 
-### MMD and Wasserstein Comparison
+### MMD / Wasserstein 비교
 
 ![MMD and Wasserstein comparison](results_twohour/mmd_wasserstein_comparison.png)
 
-### Resource Tradeoff
+### Resource tradeoff
 
 ![Resource tradeoff](results_twohour/resource_tradeoff.png)
 
-### Fidelity Under Depolarizing Noise
+### Depolarizing noise에 따른 fidelity
 
 ![Fidelity under depolarizing noise](results_twohour/fidelity_vs_noise.png)
 
-### Training Loss
+### Training loss
 
 ![MSQuDDPM-lite loss curve](results_twohour/loss_curve_msquddpm.png)
 
@@ -97,7 +134,7 @@ The random-unitary baseline is intentionally harder in this lite benchmark becau
 
 ![T-MSQuDDPM-lite loss curve](results_twohour/loss_curve_t_msquddpm.png)
 
-## Project Structure
+## 코드 구조
 
 ```text
 .
@@ -119,23 +156,23 @@ The random-unitary baseline is intentionally harder in this lite benchmark becau
 └── results_twohour/
 ```
 
-File roles:
+파일 역할:
 
-- `main.py`: CLI entry point.
-- `config.py`: presets including `smoke`, `mini`, `twohour`, `research`, and `full`.
-- `datasets.py`: quantum state ensemble generation.
-- `noise.py`: depolarizing diffusion channel and statevector proxy for optional 8-qubit runs.
-- `random_unitary.py`: QuDDPM-lite random-unitary forward process.
-- `metrics.py`: fidelity, MMD, Wasserstein, and resource metrics.
-- `models.py`: MSQuDDPM-lite, QuDDPM-lite baseline denoiser, and T-MSQuDDPM-lite.
-- `train.py`: training and evaluation loop.
-- `experiments.py`: model/seed/ablation runner and result writer.
-- `visualize.py`: CSV-to-PNG plotting.
-- `verify_results.py`: integrity check for required outputs.
+- `main.py`: CLI 실행 진입점
+- `config.py`: `smoke`, `mini`, `twohour`, `research`, `full` preset 정의
+- `datasets.py`: product, entangled, Bell-pair state ensemble 생성
+- `noise.py`: depolarizing channel과 optional 8-qubit statevector proxy
+- `random_unitary.py`: QuDDPM-lite random-unitary forward process
+- `metrics.py`: fidelity, MMD, Wasserstein, resource metric 계산
+- `models.py`: MSQuDDPM-lite, QuDDPM-lite baseline denoiser, T-MSQuDDPM-lite
+- `train.py`: 학습 및 평가 루프
+- `experiments.py`: seed/model/ablation grid 실행과 결과 저장
+- `visualize.py`: CSV 결과를 PNG figure로 변환
+- `verify_results.py`: 결과 파일과 metric row 검증
 
-## Reproduce
+## 실행 방법
 
-Create the environment:
+환경 생성:
 
 ```bash
 python3 -m venv .venv --system-site-packages
@@ -143,31 +180,31 @@ python3 -m venv .venv --system-site-packages
 python -m pip install -r requirements.txt
 ```
 
-Quick smoke test:
+빠른 smoke test:
 
 ```bash
 python main.py --preset smoke --results-dir results
 python verify_results.py --results-dir results
 ```
 
-Main verified run:
+README의 결과를 재현하는 실행:
 
 ```bash
 python main.py --preset twohour --results-dir results_twohour
 python verify_results.py --results-dir results_twohour
 ```
 
-Research-sized run from the original plan:
+원래 계획의 research-sized 실행:
 
 ```bash
 python main.py --preset research --results-dir results_research
 ```
 
-CUDA is selected automatically through `torch.cuda.is_available()`. If CUDA is unavailable, the same code falls back to CPU.
+CUDA 사용 가능 여부는 `torch.cuda.is_available()`로 자동 판정합니다.
 
-## Outputs
+## 생성 산출물
 
-The verified run produced:
+검증된 실행에서 생성된 주요 파일:
 
 - `results_twohour/metrics.csv`
 - `results_twohour/summary_table.csv`
@@ -180,8 +217,3 @@ The verified run produced:
 - `results_twohour/loss_curve_msquddpm.png`
 - `results_twohour/loss_curve_baseline.png`
 - `results_twohour/loss_curve_t_msquddpm.png`
-
-## Application Sentence
-
-Implemented a GPU-aware, resource-efficient QuDDPM-lite benchmark in pure PyTorch for 6-qubit density-matrix simulation, comparing MSQuDDPM-lite, a random-unitary QuDDPM-lite baseline, and T-MSQuDDPM-lite temporal parameter sharing across fidelity, MMD, Wasserstein distance, runtime, and circuit resource estimates over three random seeds and T/depth ablations.
-
