@@ -48,6 +48,8 @@ Application note:
 |---|---|---|
 | `smoke` | CPU/GPU 빠른 검증 | 2 qubits, 16 states, 1 epoch, `msquddpm` |
 | `mini` | 짧은 기능 검증 | 4 qubits, 64 states, 10 epochs, `msquddpm/t_msquddpm/cnr` |
+| `tenminute` | 짧은 단일-seed sanity benchmark | 6 qubits, 256 states, 60 epochs |
+| `twohour_readme` | README/보고용 비교 번들 | 6 qubits, 512 states, 400 epochs, single condition, 3 seeds, baseline+shared+cnr+independent, `match_corruption` on |
 | `twohour` | 기존 스타일 장시간 벤치마크 | 6 qubits, 512 states, 400 epochs |
 | `research` | 기본 연구용 defaults | 6 qubits, 512 states, 1000 epochs |
 | `full` | 더 큰 장기 실행 | 6 qubits, 1024 states, 3000 epochs |
@@ -146,6 +148,54 @@ depolarizing schedule은 두 모드를 지원합니다.
 - 이 프로젝트에서는 `independent_step_quddpm`을 naive upper-cost baseline으로 두고, `t_msquddpm`과 parameter/quality trade-off를 비교합니다.
 - 해당 비교 역시 lightweight benchmark 기준이며, 논문 전체 재현 결과가 아닙니다.
 
+## README Benchmark Snapshot
+
+아래 그림은 `twohour_readme` preset을 실제로 실행한 결과입니다.
+
+- command:
+  `python main.py --preset twohour_readme --results-dir results_readme_twohour`
+- artifacts:
+  [report.md](results_readme_twohour/report.md), [summary_table.csv](results_readme_twohour/summary_table.csv), [parameter_efficiency_table.csv](results_readme_twohour/parameter_efficiency_table.csv)
+
+### 1. Generation Quality
+
+![Generation quality comparison](results_readme_twohour/generation_quality_comparison.png)
+
+- `cnr`는 generation-only one-step comparator로서 가장 낮은 generation Wasserstein (`0.6421`)을 기록했습니다.
+- `msquddpm`와 `t_msquddpm`는 `quddpm_baseline`보다 더 낮은 generation Wasserstein (`0.8145`, `0.8096` vs `0.8649`)을 기록했습니다.
+- `independent_step_quddpm`는 shared 계열보다 generation metric이 약간 불리했고 (`0.8213`), 아래 parameter figure와 같이 비용은 훨씬 큽니다.
+
+### 2. Resource Tradeoff
+
+![Total resource tradeoff](results_readme_twohour/total_resource_tradeoff.png)
+
+- `quddpm_baseline`은 reconstruction 쪽 평균은 가장 높았지만, total estimated depth가 `680`으로 가장 큽니다.
+- `msquddpm`, `t_msquddpm`, `independent_step_quddpm`는 depth `340` 구간에 모이지만 generation quality는 shared 계열이 더 유리합니다.
+- `cnr`는 depth `34` 수준의 one-step comparator라서, reverse diffusion 계열과는 다른 비용/품질 위치에 있습니다.
+
+### 3. Parameter Efficiency
+
+![Parameter efficiency](results_readme_twohour/parameter_efficiency.png)
+
+- `independent_step_quddpm`는 step별 독립 denoiser 때문에 약 `8,012,960` trainable parameters를 가집니다.
+- `msquddpm`는 약 `801,800`, `t_msquddpm`는 약 `801,264` parameters로, independent baseline 대비 약 `90%` parameter reduction을 보입니다.
+- 이 비교는 temporal parameter sharing이 “품질을 조금 희생하더라도 optimizer burden과 parameter growth를 크게 줄이는 설계”라는 점을 보여줍니다.
+
+### 4. Parameter Reduction Vs Quality
+
+![Parameter reduction vs quality](results_readme_twohour/parameter_reduction_vs_quality.png)
+
+- `msquddpm`와 `t_msquddpm`는 independent baseline 대비 약 `90%` parameter reduction을 유지하면서 quality drop을 크게 키우지 않았습니다.
+- 이 run에서는 `t_msquddpm`가 generation metric에서는 `msquddpm`보다 약간 더 좋았고, reconstruction fidelity는 약간 낮았습니다.
+- 즉, 본 결과는 `T-MSQuDDPM-lite`가 “항상 우세”라기보다, shared parameterization으로 더 좋은 parameter/resource trade-off를 제공한다는 쪽에 가깝습니다.
+
+요약:
+
+- generation comparator로는 `cnr`가 가장 강했습니다.
+- shared QuDDPM 계열(`msquddpm`, `t_msquddpm`)은 baseline보다 generation/resource 쪽에서 더 좋은 위치를 보였습니다.
+- baseline은 reconstruction fidelity에서 강점을 보였지만, 비용이 컸습니다.
+- `match_corruption`은 physical equivalence가 아니라 operational fairness calibration이며, 이 결과도 그 전제 아래 해석해야 합니다.
+
 ## Outputs
 
 실행하면 결과 폴더에 보통 아래 파일들이 생성됩니다.
@@ -188,6 +238,21 @@ twohour original benchmark:
 ```bash
 python main.py --preset twohour --results-dir results_twohour_new
 python verify_results.py --results-dir results_twohour_new
+```
+
+twohour README bundle:
+
+```bash
+python main.py --preset twohour_readme --results-dir results_readme_twohour
+python verify_results.py --results-dir results_readme_twohour
+python -m quddpm_lite.report --results-dir results_readme_twohour --out results_readme_twohour/report.md
+```
+
+tenminute sanity benchmark:
+
+```bash
+python main.py --preset tenminute --results-dir results_tenminute
+python verify_results.py --results-dir results_tenminute
 ```
 
 baseline-only smoke:

@@ -1,0 +1,53 @@
+{
+  "ancilla_success_penalty": 0.01,
+  "batch_size": 128,
+  "beta_end": 0.15,
+  "beta_start": 0.01,
+  "cnr_latent_dim": 12,
+  "corruption_match_subset": 64,
+  "dataset_kind": "mixed",
+  "dataset_size": 512,
+  "depolarizing_mode": "single_beta",
+  "depth": 2,
+  "depth_grid": [
+    2
+  ],
+  "device": "auto",
+  "epochs": 400,
+  "eval_subset": 128,
+  "generation_sampling_mode": "one_step",
+  "hidden_dim": 96,
+  "include_8qubit": false,
+  "input_mode": "density",
+  "large_dataset_size": 1024,
+  "learning_rate": 0.001,
+  "match_corruption": true,
+  "max_epochs": 3000,
+  "mmd_subset": 128,
+  "models": [
+    "quddpm_baseline",
+    "msquddpm",
+    "t_msquddpm",
+    "cnr",
+    "independent_step_quddpm"
+  ],
+  "noise_steps": 10,
+  "noise_steps_grid": [
+    10
+  ],
+  "optional_qubits": 8,
+  "prior_depolarizing_beta": 0.85,
+  "prior_mixed_epsilon": 0.05,
+  "prior_mode": "depolarized_random",
+  "project_name": "GPU-accelerated Resource-Efficient QuDDPM-lite Benchmark",
+  "qubits": 6,
+  "results_dir": "/home/work/llama_young/gpu-quddpm-lite-benchmark/results_readme_twohour",
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "time_embedding_dim": 32,
+  "train_fraction": 0.8,
+  "wasserstein_subset": 128
+}

@@ -9,6 +9,8 @@ __pycache__/
 
 results/
 results_*/
+!results_readme_twohour/
+!results_readme_twohour/**
 backups/
 11.14.1
 

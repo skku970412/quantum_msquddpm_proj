@@ -12,9 +12,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the QuDDPM-lite benchmark.")
     parser.add_argument(
         "--preset",
-        choices=["smoke", "mini", "twohour", "research", "full"],
+        choices=["smoke", "mini", "tenminute", "twohour_readme", "twohour", "research", "full"],
         default="smoke",
-        help="smoke is for quick verification; twohour targets a practical 512-sample run; research keeps 512/1000 defaults.",
+        help="smoke is for quick verification; tenminute is a short single-seed benchmark; twohour_readme runs the README comparison bundle; twohour targets a practical 512-sample run; research keeps 512/1000 defaults.",
     )
     parser.add_argument("--results-dir", default="results")
     parser.add_argument("--device", default="auto")
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prior-mode", choices=["random_pure", "maximally_mixed_jitter", "depolarized_random"])
     parser.add_argument("--depolarizing-mode", choices=["single_beta", "cumulative"])
     parser.add_argument("--generation-sampling-mode", choices=["one_step", "iterative"])
-    parser.add_argument("--match-corruption", action="store_true")
+    parser.add_argument("--match-corruption", action="store_true", default=None)
     parser.add_argument("--seeds", type=int, nargs="+")
     parser.add_argument("--noise-steps-grid", type=int, nargs="+")
     parser.add_argument("--depth-grid", type=int, nargs="+")
@@ -65,8 +65,9 @@ def main() -> None:
         "results_dir": results_dir,
         "device": args.device,
         "include_8qubit": args.include_8qubit,
-        "match_corruption": args.match_corruption,
     }
+    if args.match_corruption is not None:
+        updates["match_corruption"] = args.match_corruption
     for key in [
         "dataset_size",
         "qubits",

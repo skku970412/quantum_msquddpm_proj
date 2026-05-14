@@ -98,6 +98,47 @@ def preset_config(preset: str) -> ExperimentConfig:
             wasserstein_subset=32,
             eval_subset=32,
         )
+    if preset == "tenminute":
+        return replace(
+            base,
+            dataset_size=256,
+            epochs=60,
+            batch_size=64,
+            seeds=[0],
+            noise_steps=6,
+            noise_steps_grid=[6],
+            depth=2,
+            depth_grid=[2],
+            hidden_dim=96,
+            mmd_subset=64,
+            wasserstein_subset=64,
+            eval_subset=64,
+        )
+    if preset == "twohour_readme":
+        return replace(
+            base,
+            dataset_size=512,
+            epochs=400,
+            batch_size=128,
+            hidden_dim=96,
+            noise_steps=10,
+            noise_steps_grid=[10],
+            depth=2,
+            depth_grid=[2],
+            seeds=[0, 1, 2],
+            models=[
+                "quddpm_baseline",
+                "msquddpm",
+                "t_msquddpm",
+                "cnr",
+                "independent_step_quddpm",
+            ],
+            cnr_latent_dim=12,
+            match_corruption=True,
+            mmd_subset=128,
+            wasserstein_subset=128,
+            eval_subset=128,
+        )
     if preset == "twohour":
         return replace(
             base,
