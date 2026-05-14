@@ -111,7 +111,7 @@ results/
 대상 repository:
 
 ```text
-git@github.com:skku970412/quantum_msquddpm_proj.git
+https://github.com/skku970412/quantum_msquddpm_proj.git
 ```
 
 명령:
@@ -120,7 +120,7 @@ git@github.com:skku970412/quantum_msquddpm_proj.git
 cd /home/work/llama_young/gpu-quddpm-lite-benchmark
 git init
 git branch -M main
-git remote add origin git@github.com:skku970412/quantum_msquddpm_proj.git
+git remote add origin https://github.com/skku970412/quantum_msquddpm_proj.git
 git add .
 git commit -m "Add quantum MSQuDDPM-lite benchmark"
 git push -u origin main
@@ -129,7 +129,13 @@ git push -u origin main
 이미 remote가 있으면:
 
 ```bash
-git remote set-url origin git@github.com:skku970412/quantum_msquddpm_proj.git
+git remote set-url origin https://github.com/skku970412/quantum_msquddpm_proj.git
 git push -u origin main
 ```
 
+HTTPS 인증이 막히면 Personal Access Token을 password 칸에 입력한다. VS Code askpass socket 오류가 나면 아래처럼 터미널 prompt를 강제한다.
+
+```bash
+unset GIT_ASKPASS SSH_ASKPASS VSCODE_GIT_ASKPASS_NODE VSCODE_GIT_ASKPASS_EXTRA_ARGS VSCODE_GIT_ASKPASS_MAIN VSCODE_GIT_IPC_HANDLE
+git push -u origin main
+```

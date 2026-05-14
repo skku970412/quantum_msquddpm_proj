@@ -3,14 +3,14 @@
 Target repository:
 
 ```text
-git@github.com:skku970412/quantum_msquddpm_proj.git
+https://github.com/skku970412/quantum_msquddpm_proj.git
 ```
 
 Local status:
 
 - Git repository initialized in this project folder.
 - Branch: `main`
-- Remote: `origin`
+- Remote: `origin` set to HTTPS
 - Commit created: `Add quantum MSQuDDPM-lite benchmark`
 - Benchmark results verified before commit.
 
@@ -24,29 +24,41 @@ git push -u origin main
 Current blocker:
 
 ```text
-git@github.com: Permission denied (publickey).
-fatal: Could not read from remote repository.
+remote: No anonymous write access.
+fatal: Authentication failed for 'https://github.com/skku970412/quantum_msquddpm_proj.git/'
 ```
 
-This means the server's SSH key is not registered with the GitHub account or repository. Add the server public key to GitHub, then run the push command again.
+This means HTTPS works, but the server does not have GitHub credentials. GitHub no longer accepts account passwords for Git over HTTPS, so use a Personal Access Token.
 
-Print the server public key:
+Recommended manual push:
 
 ```bash
-ssh-keygen -y -f /home/work/.ssh/id_rsa
+cd /home/work/llama_young/gpu-quddpm-lite-benchmark
+unset GIT_ASKPASS SSH_ASKPASS VSCODE_GIT_ASKPASS_NODE VSCODE_GIT_ASKPASS_EXTRA_ARGS VSCODE_GIT_ASKPASS_MAIN VSCODE_GIT_IPC_HANDLE
+git push -u origin main
 ```
+
+When prompted:
+
+```text
+Username: skku970412
+Password: paste a GitHub Personal Access Token, not the account password
+```
+
+Token options:
+
+- Fine-grained token: repository `skku970412/quantum_msquddpm_proj`, Contents: Read and write.
+- Classic token: `repo` scope.
 
 GitHub path:
 
 ```text
-GitHub -> Settings -> SSH and GPG keys -> New SSH key
+GitHub -> Settings -> Developer settings -> Personal access tokens
 ```
 
-After adding the key, verify and push:
+Check the remote:
 
 ```bash
 cd /home/work/llama_young/gpu-quddpm-lite-benchmark
-git ls-remote origin
-git push -u origin main
+git remote -v
 ```
-
