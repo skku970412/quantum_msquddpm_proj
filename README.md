@@ -4,6 +4,10 @@
 
 CUDA가 있으면 GPU를 사용하고, 없으면 CPU에서 실행됩니다.
 
+## Abstract
+
+이 프로젝트는 QuDDPM/MSQuDDPM 논문 완전 재현이 아니라, **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**입니다. 목표는 작은 qubit 수에서 forward corruption, denoising, prior-based generation evaluation, fairness logging, resource comparison을 빠르게 반복 검증하는 것입니다. 현재 README benchmark 기준으로는 `cnr`가 generation comparator로 가장 낮은 Wasserstein을 보였고, `msquddpm`/`t_msquddpm`는 `quddpm_baseline`보다 generation/resource trade-off에서 더 나은 위치를 보였습니다. 반면 reconstruction fidelity는 baseline이 더 높게 나온 조건도 있었으므로, 이 저장소는 “단일 승자”를 주장하는 코드가 아니라 comparator별 강점과 한계를 함께 드러내는 연구형 sandbox로 해석하는 것이 맞습니다.
+
 ## Project Scope
 
 - 논문 전체 재현이 아닙니다.
@@ -195,6 +199,18 @@ depolarizing schedule은 두 모드를 지원합니다.
 - shared QuDDPM 계열(`msquddpm`, `t_msquddpm`)은 baseline보다 generation/resource 쪽에서 더 좋은 위치를 보였습니다.
 - baseline은 reconstruction fidelity에서 강점을 보였지만, 비용이 컸습니다.
 - `match_corruption`은 physical equivalence가 아니라 operational fairness calibration이며, 이 결과도 그 전제 아래 해석해야 합니다.
+
+## Discussion
+
+- 이 결과는 reconstruction benchmark와 generation benchmark를 분리해서 봐야 의미가 있습니다. `quddpm_baseline`은 reconstruction fidelity에서 가장 강했지만, generation Wasserstein과 total estimated depth에서는 불리했습니다.
+- `msquddpm`와 `t_msquddpm`는 baseline 대비 generation metric과 resource metric에서 더 좋은 위치를 보였습니다. 특히 `t_msquddpm`는 `msquddpm`보다 generation 쪽이 약간 더 좋고 parameter 수는 거의 같은 수준이라, temporal sharing의 실용적 의미를 보여줍니다.
+- `independent_step_quddpm`는 shared 계열보다 약 `10x` 큰 파라미터 수와 매우 긴 runtime을 보여줬습니다. 이 baseline은 품질 우월성을 보여주기보다, step-wise 독립 파라미터화가 실제로 얼마나 비싼지 보여주는 reference로 보는 편이 맞습니다.
+- `cnr`는 generation-only one-step comparator로서는 매우 강하게 나왔지만, QuDDPM 대체 모델로 읽으면 안 됩니다. reconstruction과 reverse diffusion 구조를 직접 비교하는 대상이 아니라, lightweight comparator입니다.
+- `match_corruption`은 random-unitary와 depolarizing forward를 물리적으로 동일하게 만드는 기능이 아니라, finite benchmark에서 final target-noisy fidelity를 맞추는 operational fairness calibration입니다.
+
+## Conclusion
+
+이 저장소는 본선 문제의 정답 구현이 아니라, QuDDPM 계열 아이디어를 실험 설계 관점에서 준비하기 위한 benchmark sandbox로서는 충분히 의미 있는 상태입니다. 현재 결과만 보면 `cnr`는 generation comparator로 강하고, shared QuDDPM 계열은 baseline 대비 generation/resource trade-off에서 유리하며, `independent_step_quddpm`는 parameter-efficiency 비교를 위한 기준점 역할을 잘 수행합니다. 따라서 발표나 신청서에서는 “무조건 최고 성능”보다, 공정 비교, generation/reconstruction 분리, parameter efficiency, limitation 명시가 함께 들어간 준비된 연구형 sandbox라는 점을 전면에 두는 것이 가장 설득력 있습니다.
 
 ## Outputs
 
