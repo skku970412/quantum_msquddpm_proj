@@ -1,8 +1,8 @@
 # GPU 기반 자원 효율적 QuDDPM-lite 벤치마크
 
-이 프로젝트는 2026 양자정보경진대회 지정주제 3번 **Quantum Machine Learning** 지원서에 넣을 수 있는 프로젝트 수행 경험을 목표로 만든 순수 PyTorch 기반 시뮬레이션 벤치마크입니다.
+순수 PyTorch만으로 구현한 6-qubit quantum diffusion simulation 벤치마크입니다. GPU 사용이 가능하면 CUDA를 자동으로 사용하고, CUDA가 없으면 CPU로 fallback합니다.
 
-전체 QuDDPM 논문을 완전 재현한다고 표현하지 않고, 실제 구현 가능한 범위의 **QuDDPM-lite / MSQuDDPM-lite / resource-efficient benchmark**로 정리했습니다.
+전체 QuDDPM 논문 재현이 아니라, 실제 실행 가능한 범위의 **QuDDPM-lite / MSQuDDPM-lite / resource-efficient benchmark** 구현과 비교 평가에 초점을 맞췄습니다.
 
 ## 프로젝트 개요
 
