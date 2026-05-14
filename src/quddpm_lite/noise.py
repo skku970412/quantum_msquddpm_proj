@@ -85,3 +85,69 @@ def fidelity_under_depolarizing(
     mode: str = "single_beta",
 ) -> torch.Tensor:
     return expected_fidelity_under_depolarizing(betas=betas, dim=states.shape[-1], mode=mode)
+
+
+def measure_target_noisy_fidelity(
+    states: torch.Tensor,
+    noisy_rhos_or_states: torch.Tensor,
+    input_mode: str = "density",
+) -> tuple[float, float]:
+    states = normalize_statevectors(states)
+    if input_mode == "density":
+        values = torch.einsum(
+            "bi,bij,bj->b",
+            states.conj(),
+            noisy_rhos_or_states,
+            states,
+        ).real.clamp_min(0.0)
+    elif input_mode == "statevector":
+        noisy = normalize_statevectors(noisy_rhos_or_states)
+        overlap = torch.sum(states.conj() * noisy, dim=-1)
+        values = torch.abs(overlap).pow(2).real
+    else:
+        raise ValueError(f"Unknown input_mode: {input_mode}")
+    return float(values.mean().detach().cpu()), float(values.std(unbiased=False).detach().cpu())
+
+
+def calibrate_depolarizing_beta_for_target_fidelity(
+    target_fidelity: float,
+    dim: int,
+    mode: str = "single_beta",
+) -> tuple[float, float]:
+    if mode != "single_beta":
+        raise ValueError("calibrate_depolarizing_beta_for_target_fidelity only supports single_beta")
+    denom = 1.0 - (1.0 / max(dim, 1))
+    if denom <= 0.0:
+        return 0.0, 1.0
+    beta = (1.0 - float(target_fidelity)) / denom
+    beta = float(max(0.0, min(1.0, beta)))
+    expected = 1.0 - beta + beta / dim
+    return beta, float(expected)
+
+
+def calibrate_cumulative_beta_end_for_target_fidelity(
+    target_fidelity: float,
+    noise_steps: int,
+    beta_start: float,
+    dim: int,
+) -> tuple[float, float, float]:
+    target = float(max(1.0 / max(dim, 1), min(1.0, target_fidelity)))
+    low = max(0.0, beta_start)
+    high = 0.999
+    best_beta_end = high
+    best_alpha_bar = 0.0
+    best_fidelity = 1.0 / max(dim, 1)
+    device = torch.device("cpu")
+    for _ in range(60):
+        beta_end = 0.5 * (low + high)
+        betas = linear_beta_schedule(noise_steps, beta_start, beta_end, device=device)
+        alpha_bar_final = float(alpha_bar_schedule(betas)[-1].item())
+        fidelity = float(alpha_bar_final + (1.0 - alpha_bar_final) / dim)
+        if fidelity > target:
+            low = beta_end
+        else:
+            high = beta_end
+        best_beta_end = beta_end
+        best_alpha_bar = alpha_bar_final
+        best_fidelity = fidelity
+    return float(best_beta_end), float(best_alpha_bar), float(best_fidelity)

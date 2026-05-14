@@ -16,6 +16,7 @@ CORE_RESULT_FILES = [
     "seed_summary.csv",
     "loss_history.csv",
     "noise_curve.csv",
+    "parameter_efficiency_table.csv",
 ]
 
 CORE_PLOT_FILES = [
@@ -25,6 +26,9 @@ CORE_PLOT_FILES = [
     "fidelity_vs_noise.png",
     "generation_quality_comparison.png",
     "total_resource_tradeoff.png",
+    "parameter_efficiency.png",
+    "quality_vs_params.png",
+    "parameter_reduction_vs_quality.png",
 ]
 
 MODEL_LOSS_PLOTS = {
@@ -32,6 +36,8 @@ MODEL_LOSS_PLOTS = {
     "quddpm_baseline": "loss_curve_baseline.png",
     "t_msquddpm": "loss_curve_t_msquddpm.png",
     "cnr": "loss_curve_cnr.png",
+    "independent_step_quddpm": "loss_curve_independent_step_quddpm.png",
+    "ancilla_toy": "loss_curve_ancilla_toy.png",
 }
 
 REQUIRED_COLUMNS = {
@@ -39,6 +45,8 @@ REQUIRED_COLUMNS = {
     "seed",
     "qubits",
     "dataset_size",
+    "hidden_dim",
+    "time_embedding_dim",
     "noise_steps",
     "depth",
     "fidelity",
@@ -50,14 +58,43 @@ REQUIRED_COLUMNS = {
     "generation_sampling_mode",
     "mmd",
     "wasserstein",
+    "success_probability_mean",
+    "success_probability_std",
     "forward_process_type",
     "forward_final_target_noisy_fidelity_mean",
+    "match_corruption_enabled",
+    "target_corruption_fidelity",
+    "actual_forward_fidelity_mean",
+    "corruption_match_error_abs",
     "trainable_parameters",
     "estimated_circuit_depth",
     "estimated_two_qubit_gate_count",
     "total_estimated_depth",
     "total_estimated_two_qubit_gate_count",
+    "step_parameterization",
+    "effective_denoiser_count",
+    "ancilla_qubits",
+    "post_selection_required",
     "runtime_sec",
+}
+
+PARAMETER_TABLE_REQUIRED_COLUMNS = {
+    "condition_id",
+    "qubits",
+    "noise_steps",
+    "depth",
+    "hidden_dim",
+    "model",
+    "step_parameterization",
+    "trainable_parameters",
+    "parameter_ratio_vs_independent",
+    "parameter_reduction_percent_vs_independent",
+    "reconstruction_fidelity",
+    "generation_wasserstein",
+    "generation_mmd",
+    "runtime_sec",
+    "quality_drop_vs_independent",
+    "efficiency_notes",
 }
 
 
@@ -96,6 +133,12 @@ def verify(results_dir: Path) -> None:
     missing_columns = REQUIRED_COLUMNS.difference(metrics.columns)
     if missing_columns:
         raise SystemExit(f"metrics.csv missing columns: {sorted(missing_columns)}")
+    parameter_table = pd.read_csv(results_dir / "parameter_efficiency_table.csv")
+    missing_parameter_columns = PARAMETER_TABLE_REQUIRED_COLUMNS.difference(parameter_table.columns)
+    if missing_parameter_columns:
+        raise SystemExit(
+            f"parameter_efficiency_table.csv missing columns: {sorted(missing_parameter_columns)}"
+        )
 
     expected_rows = _expected_rows(config)
     if expected_rows is not None and len(metrics) != expected_rows:
@@ -130,6 +173,20 @@ def verify(results_dir: Path) -> None:
         raise SystemExit("CNR rows must record generation_mmd")
     if not cnr_rows.empty and not cnr_rows["reconstruction_fidelity"].isna().all():
         raise SystemExit("CNR reconstruction_fidelity should be recorded as NaN")
+    independent_rows = metrics[metrics["model"] == "independent_step_quddpm"]
+    if not independent_rows.empty and not independent_rows["is_step_independent_model"].all():
+        raise SystemExit("independent_step_quddpm rows must set is_step_independent_model=True")
+    ancilla_rows = metrics[metrics["model"] == "ancilla_toy"]
+    if not ancilla_rows.empty and ancilla_rows["success_probability_mean"].isna().any():
+        raise SystemExit("ancilla_toy rows must record success_probability_mean")
+    if not ancilla_rows.empty and not ancilla_rows["post_selection_required"].all():
+        raise SystemExit("ancilla_toy rows must set post_selection_required=True")
+    if config.get("match_corruption"):
+        non_cnr_rows = metrics[metrics["model"] != "cnr"]
+        if non_cnr_rows["target_corruption_fidelity"].isna().any():
+            raise SystemExit("match_corruption run must record target_corruption_fidelity")
+        if non_cnr_rows["actual_forward_fidelity_mean"].isna().any():
+            raise SystemExit("match_corruption run must record actual_forward_fidelity_mean")
 
     x = torch.eye(4, dtype=torch.complex64)[:2]
     f = pairwise_fidelity_matrix(x, x)

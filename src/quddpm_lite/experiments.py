@@ -4,7 +4,6 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import pandas as pd
-import torch
 
 from .config import ExperimentConfig
 from .noise import alpha_bar_schedule, expected_fidelity_under_depolarizing, linear_beta_schedule
@@ -13,9 +12,106 @@ from .utils import ensure_dir, resolve_device, save_json
 from .visualize import write_all_plots
 
 
-def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
+PARAM_EFFICIENCY_COLUMNS = [
+    "condition_id",
+    "qubits",
+    "noise_steps",
+    "depth",
+    "hidden_dim",
+    "model",
+    "step_parameterization",
+    "trainable_parameters",
+    "parameter_ratio_vs_independent",
+    "parameter_reduction_percent_vs_independent",
+    "reconstruction_fidelity",
+    "generation_wasserstein",
+    "generation_mmd",
+    "runtime_sec",
+    "quality_drop_vs_independent",
+    "efficiency_notes",
+]
+
+
+def _parameter_efficiency_table(metrics: pd.DataFrame) -> pd.DataFrame:
+    if metrics.empty:
+        return pd.DataFrame(columns=PARAM_EFFICIENCY_COLUMNS)
+
+    condition_cols = ["qubits", "noise_steps", "depth", "hidden_dim"]
+    grouped = (
+        metrics.groupby(condition_cols + ["model", "step_parameterization"], dropna=False)
+        .agg(
+            trainable_parameters=("trainable_parameters", "mean"),
+            reconstruction_fidelity=("reconstruction_fidelity", "mean"),
+            generation_wasserstein=("generation_wasserstein", "mean"),
+            generation_mmd=("generation_mmd", "mean"),
+            runtime_sec=("runtime_sec", "mean"),
+        )
+        .reset_index()
+    )
+    grouped["condition_id"] = grouped.apply(
+        lambda row: f"q{int(row['qubits'])}_T{int(row['noise_steps'])}_d{int(row['depth'])}_h{int(row['hidden_dim'])}",
+        axis=1,
+    )
+    reference = (
+        grouped[grouped["model"] == "independent_step_quddpm"][
+            condition_cols + ["trainable_parameters", "reconstruction_fidelity", "generation_wasserstein"]
+        ]
+        .rename(
+            columns={
+                "trainable_parameters": "independent_trainable_parameters",
+                "reconstruction_fidelity": "independent_reconstruction_fidelity",
+                "generation_wasserstein": "independent_generation_wasserstein",
+            }
+        )
+        .copy()
+    )
+    merged = grouped.merge(reference, on=condition_cols, how="left")
+
+    ratio = merged["trainable_parameters"] / merged["independent_trainable_parameters"]
+    merged["parameter_ratio_vs_independent"] = ratio.where(
+        merged["independent_trainable_parameters"].notna()
+    )
+    merged["parameter_reduction_percent_vs_independent"] = (
+        100.0 * (1.0 - merged["parameter_ratio_vs_independent"])
+    )
+
+    reconstruction_available = (
+        merged["independent_reconstruction_fidelity"].notna()
+        & merged["reconstruction_fidelity"].notna()
+    )
+    generation_available = (
+        merged["independent_generation_wasserstein"].notna()
+        & merged["generation_wasserstein"].notna()
+    )
+    merged["quality_drop_vs_independent"] = pd.NA
+    merged.loc[reconstruction_available, "quality_drop_vs_independent"] = (
+        merged.loc[reconstruction_available, "independent_reconstruction_fidelity"]
+        - merged.loc[reconstruction_available, "reconstruction_fidelity"]
+    )
+    merged.loc[generation_available & ~reconstruction_available, "quality_drop_vs_independent"] = (
+        merged.loc[generation_available & ~reconstruction_available, "generation_wasserstein"]
+        - merged.loc[generation_available & ~reconstruction_available, "independent_generation_wasserstein"]
+    )
+
+    notes = []
+    for _, row in merged.iterrows():
+        if pd.isna(row["independent_trainable_parameters"]):
+            notes.append("independent reference not run in this result directory")
+        elif pd.isna(row["quality_drop_vs_independent"]):
+            notes.append("quality drop unavailable for this condition")
+        else:
+            notes.append("compared against independent-step reference under same condition")
+    merged["efficiency_notes"] = notes
+    return merged[PARAM_EFFICIENCY_COLUMNS].sort_values(["condition_id", "model"]).reset_index(drop=True)
+
+
+def _write_summaries(
+    metrics: pd.DataFrame,
+    parameter_table: pd.DataFrame,
+    results_dir: Path,
+) -> None:
     summary = (
-        metrics.groupby(["model", "noise_steps", "depth"])
+        metrics.groupby(["model", "noise_steps", "depth", "hidden_dim"])
         .agg(
             fidelity_mean=("fidelity", "mean"),
             fidelity_std=("fidelity", "std"),
@@ -29,6 +125,8 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
             generation_mmd_mean=("generation_mmd", "mean"),
             generation_wasserstein_mean=("generation_wasserstein", "mean"),
             generation_nearest_fidelity_mean=("generation_nearest_fidelity_mean", "mean"),
+            success_probability_mean=("success_probability_mean", "mean"),
+            success_probability_std=("success_probability_std", "mean"),
             mmd_mean=("mmd", "mean"),
             mmd_std=("mmd", "std"),
             wasserstein_mean=("wasserstein", "mean"),
@@ -47,15 +145,44 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
                 "forward_final_target_noisy_fidelity_mean",
                 "mean",
             ),
+            target_corruption_fidelity_mean=("target_corruption_fidelity", "mean"),
+            actual_forward_fidelity_mean=("actual_forward_fidelity_mean", "mean"),
+            corruption_match_error_abs_mean=("corruption_match_error_abs", "mean"),
             generation_prior_mode=("generation_prior_mode", "first"),
             generation_sampling_mode=("generation_sampling_mode", "first"),
             forward_process_type=("forward_process_type", "first"),
             depolarizing_mode=("depolarizing_mode", "first"),
+            step_parameterization=("step_parameterization", "first"),
+            effective_denoiser_count=("effective_denoiser_count", "first"),
+            post_selection_required=("post_selection_required", "first"),
+            ancilla_qubits=("ancilla_qubits", "first"),
             resource_notes=("resource_notes", "first"),
             gpu_memory_mb_max=("gpu_memory_mb", "max"),
         )
         .reset_index()
     )
+    if not parameter_table.empty:
+        parameter_summary = (
+            parameter_table.groupby(["model", "noise_steps", "depth", "hidden_dim"], dropna=False)
+            .agg(
+                parameter_ratio_vs_independent_mean=("parameter_ratio_vs_independent", "mean"),
+                parameter_reduction_percent_vs_independent_mean=(
+                    "parameter_reduction_percent_vs_independent",
+                    "mean",
+                ),
+                quality_drop_vs_independent_mean=("quality_drop_vs_independent", "mean"),
+            )
+            .reset_index()
+        )
+        summary = summary.merge(
+            parameter_summary,
+            on=["model", "noise_steps", "depth", "hidden_dim"],
+            how="left",
+        )
+    else:
+        summary["parameter_ratio_vs_independent_mean"] = pd.NA
+        summary["parameter_reduction_percent_vs_independent_mean"] = pd.NA
+        summary["quality_drop_vs_independent_mean"] = pd.NA
     summary.to_csv(results_dir / "summary_table.csv", index=False)
 
     seed_summary = (
@@ -66,6 +193,7 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
             generation_mmd_mean=("generation_mmd", "mean"),
             generation_wasserstein_mean=("generation_wasserstein", "mean"),
             generation_nearest_fidelity_mean=("generation_nearest_fidelity_mean", "mean"),
+            success_probability_mean=("success_probability_mean", "mean"),
             mmd_mean=("mmd", "mean"),
             wasserstein_mean=("wasserstein", "mean"),
             runtime_sec_mean=("runtime_sec", "mean"),
@@ -143,12 +271,14 @@ def run_experiments(config: ExperimentConfig) -> dict[str, Path]:
     metrics = pd.DataFrame(metric_rows)
     losses = pd.concat(loss_frames, ignore_index=True)
     noise_curve = _noise_curve(config)
+    parameter_table = _parameter_efficiency_table(metrics)
 
     metrics.to_csv(results_dir / "metrics.csv", index=False)
     losses.to_csv(results_dir / "loss_history.csv", index=False)
     noise_curve.to_csv(results_dir / "noise_curve.csv", index=False)
-    _write_summaries(metrics, results_dir)
-    write_all_plots(metrics, losses, noise_curve, results_dir)
+    parameter_table.to_csv(results_dir / "parameter_efficiency_table.csv", index=False)
+    _write_summaries(metrics, parameter_table, results_dir)
+    write_all_plots(metrics, losses, noise_curve, parameter_table, results_dir)
 
     if config.include_8qubit:
         optional = replace(
@@ -173,4 +303,5 @@ def run_experiments(config: ExperimentConfig) -> dict[str, Path]:
         "metrics": results_dir / "metrics.csv",
         "summary_table": results_dir / "summary_table.csv",
         "seed_summary": results_dir / "seed_summary.csv",
+        "parameter_efficiency_table": results_dir / "parameter_efficiency_table.csv",
     }

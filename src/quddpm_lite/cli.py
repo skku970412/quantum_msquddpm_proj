@@ -33,13 +33,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prior-mode", choices=["random_pure", "maximally_mixed_jitter", "depolarized_random"])
     parser.add_argument("--depolarizing-mode", choices=["single_beta", "cumulative"])
     parser.add_argument("--generation-sampling-mode", choices=["one_step", "iterative"])
+    parser.add_argument("--match-corruption", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+")
     parser.add_argument("--noise-steps-grid", type=int, nargs="+")
     parser.add_argument("--depth-grid", type=int, nargs="+")
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=["msquddpm", "quddpm_baseline", "t_msquddpm", "cnr"],
+        choices=[
+            "msquddpm",
+            "quddpm_baseline",
+            "t_msquddpm",
+            "cnr",
+            "independent_step_quddpm",
+            "ancilla_toy",
+        ],
     )
     parser.add_argument("--include-8qubit", action="store_true")
     return parser.parse_args()
@@ -57,6 +65,7 @@ def main() -> None:
         "results_dir": results_dir,
         "device": args.device,
         "include_8qubit": args.include_8qubit,
+        "match_corruption": args.match_corruption,
     }
     for key in [
         "dataset_size",

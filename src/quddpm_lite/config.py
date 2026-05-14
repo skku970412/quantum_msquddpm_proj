@@ -46,6 +46,7 @@ class ExperimentConfig:
     prior_depolarizing_beta: float = 0.85
     match_corruption: bool = False
     corruption_match_subset: int = 64
+    ancilla_success_penalty: float = 0.01
     device: str = "auto"
     include_8qubit: bool = False
 

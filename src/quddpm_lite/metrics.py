@@ -100,9 +100,25 @@ def resource_metrics(
     model_name: str,
     generation_sampling_mode: str = "one_step",
 ) -> dict[str, Any]:
-    denoiser_depth_per_step = depth * (2 * qubits + (qubits - 1))
-    denoiser_two_qubit_gates_per_step = depth * (qubits - 1)
-    denoiser_single_qubit_rotations_per_step = depth * qubits * 2
+    ancilla_qubits = 1 if model_name == "ancilla_toy" else 0
+    effective_qubits = qubits + ancilla_qubits
+    denoiser_depth_per_step = depth * (2 * effective_qubits + (effective_qubits - 1))
+    denoiser_two_qubit_gates_per_step = depth * max(effective_qubits - 1, 0)
+    denoiser_single_qubit_rotations_per_step = depth * effective_qubits * 2
+    is_step_independent_model = model_name == "independent_step_quddpm"
+    post_selection_required = model_name == "ancilla_toy"
+    if model_name == "independent_step_quddpm":
+        step_parameterization = "independent"
+        effective_denoiser_count = noise_steps
+    elif model_name == "cnr":
+        step_parameterization = "one_step_cnr"
+        effective_denoiser_count = 1
+    elif model_name == "ancilla_toy":
+        step_parameterization = "shared_no_time"
+        effective_denoiser_count = 1
+    else:
+        step_parameterization = "shared_time_conditioned"
+        effective_denoiser_count = 1
 
     if model_name == "cnr":
         total_reverse_depth = 0
@@ -115,6 +131,19 @@ def resource_metrics(
         total_estimated_depth = denoiser_depth_per_step
         total_estimated_two_qubit_gate_count = denoiser_two_qubit_gates_per_step
         resource_notes = "One-step classical-noise reuploading comparator heuristic."
+    elif model_name == "ancilla_toy":
+        total_reverse_depth = noise_steps * denoiser_depth_per_step
+        total_reverse_two_qubit_gate_count = noise_steps * denoiser_two_qubit_gates_per_step
+        total_reverse_single_qubit_rotation_count = (
+            noise_steps * denoiser_single_qubit_rotations_per_step
+        )
+        forward_unitary_depth = 0
+        forward_two_qubit_gate_count = 0
+        channel_application_count = 0
+        generation_call_count = 1
+        total_estimated_depth = total_reverse_depth
+        total_estimated_two_qubit_gate_count = total_reverse_two_qubit_gate_count
+        resource_notes = "Ancilla post-selection toy denoiser heuristic with one ancilla qubit."
     else:
         total_reverse_depth = noise_steps * denoiser_depth_per_step
         total_reverse_two_qubit_gate_count = noise_steps * denoiser_two_qubit_gates_per_step
@@ -144,6 +173,12 @@ def resource_metrics(
         "estimated_circuit_depth": denoiser_depth_per_step,
         "estimated_two_qubit_gate_count": denoiser_two_qubit_gates_per_step,
         "estimated_single_qubit_rotation_count": denoiser_single_qubit_rotations_per_step,
+        "effective_qubits": effective_qubits,
+        "ancilla_qubits": ancilla_qubits,
+        "post_selection_required": post_selection_required,
+        "is_step_independent_model": is_step_independent_model,
+        "step_parameterization": step_parameterization,
+        "effective_denoiser_count": effective_denoiser_count,
         "denoiser_depth_per_step": denoiser_depth_per_step,
         "denoiser_two_qubit_gates_per_step": denoiser_two_qubit_gates_per_step,
         "denoiser_single_qubit_rotations_per_step": denoiser_single_qubit_rotations_per_step,

@@ -16,12 +16,22 @@ def _save(fig: plt.Figure, path: Path) -> None:
     plt.close(fig)
 
 
+def _placeholder_plot(path: Path, title: str, message: str) -> None:
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.axis("off")
+    ax.set_title(title)
+    ax.text(0.5, 0.5, message, ha="center", va="center", wrap=True)
+    _save(fig, path)
+
+
 def plot_loss_curves(losses: pd.DataFrame, results_dir: Path) -> None:
     name_map = {
         "msquddpm": "loss_curve_msquddpm.png",
         "quddpm_baseline": "loss_curve_baseline.png",
         "t_msquddpm": "loss_curve_t_msquddpm.png",
         "cnr": "loss_curve_cnr.png",
+        "independent_step_quddpm": "loss_curve_independent_step_quddpm.png",
+        "ancilla_toy": "loss_curve_ancilla_toy.png",
     }
     for model, filename in name_map.items():
         subset = losses[losses["model"] == model]
@@ -117,7 +127,7 @@ def plot_generation_quality_comparison(metrics: pd.DataFrame, results_dir: Path)
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.bar(
         grouped["model"],
-        grouped["mean"],
+        grouped["mean"].fillna(0.0),
         yerr=grouped["std"].fillna(0.0),
         capsize=4,
     )
@@ -132,7 +142,7 @@ def plot_generation_quality_comparison(metrics: pd.DataFrame, results_dir: Path)
 def plot_total_resource_tradeoff(metrics: pd.DataFrame, results_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 4))
     for model, subset in metrics.groupby("model"):
-        y = subset["generation_wasserstein"]
+        y = subset["generation_wasserstein"].copy()
         if y.isna().all():
             y = subset["fidelity"]
         ax.scatter(
@@ -150,10 +160,89 @@ def plot_total_resource_tradeoff(metrics: pd.DataFrame, results_dir: Path) -> No
     _save(fig, results_dir / "total_resource_tradeoff.png")
 
 
+def plot_parameter_efficiency(parameter_table: pd.DataFrame, results_dir: Path) -> None:
+    if parameter_table.empty or parameter_table["trainable_parameters"].dropna().empty:
+        return _placeholder_plot(
+            results_dir / "parameter_efficiency.png",
+            "Parameter efficiency",
+            "No parameter-efficiency data available.",
+        )
+    grouped = parameter_table.groupby("model")["trainable_parameters"].mean().reset_index()
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(grouped["model"], grouped["trainable_parameters"])
+    ax.set_title("Parameter efficiency")
+    ax.set_xlabel("Model")
+    ax.set_ylabel("Trainable parameters")
+    ax.tick_params(axis="x", rotation=15)
+    ax.grid(True, axis="y", alpha=0.25)
+    _save(fig, results_dir / "parameter_efficiency.png")
+
+
+def plot_quality_vs_params(parameter_table: pd.DataFrame, results_dir: Path) -> None:
+    if parameter_table.empty:
+        return _placeholder_plot(
+            results_dir / "quality_vs_params.png",
+            "Quality vs params",
+            "No parameter-efficiency data available.",
+        )
+    fig, ax = plt.subplots(figsize=(7, 4))
+    plotted = False
+    for _, row in parameter_table.iterrows():
+        quality = row["reconstruction_fidelity"]
+        if pd.isna(quality):
+            continue
+        plotted = True
+        ax.scatter(row["trainable_parameters"], quality, alpha=0.8)
+        ax.text(row["trainable_parameters"], quality, row["model"], fontsize=8)
+    if not plotted:
+        return _placeholder_plot(
+            results_dir / "quality_vs_params.png",
+            "Quality vs params",
+            "No reconstruction-quality values available.",
+        )
+    ax.set_xscale("log")
+    ax.set_title("Quality vs params")
+    ax.set_xlabel("Trainable parameters")
+    ax.set_ylabel("Reconstruction fidelity")
+    ax.grid(True, alpha=0.25)
+    _save(fig, results_dir / "quality_vs_params.png")
+
+
+def plot_parameter_reduction_vs_quality(parameter_table: pd.DataFrame, results_dir: Path) -> None:
+    valid = parameter_table.dropna(
+        subset=["parameter_reduction_percent_vs_independent", "quality_drop_vs_independent"]
+    )
+    if valid.empty:
+        return _placeholder_plot(
+            results_dir / "parameter_reduction_vs_quality.png",
+            "Parameter reduction vs quality",
+            "Independent-step reference not available in this result directory.",
+        )
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for _, row in valid.iterrows():
+        ax.scatter(
+            row["parameter_reduction_percent_vs_independent"],
+            row["quality_drop_vs_independent"],
+            alpha=0.8,
+        )
+        ax.text(
+            row["parameter_reduction_percent_vs_independent"],
+            row["quality_drop_vs_independent"],
+            row["model"],
+            fontsize=8,
+        )
+    ax.set_title("Parameter reduction vs quality")
+    ax.set_xlabel("Parameter reduction percent vs independent")
+    ax.set_ylabel("Quality drop vs independent")
+    ax.grid(True, alpha=0.25)
+    _save(fig, results_dir / "parameter_reduction_vs_quality.png")
+
+
 def write_all_plots(
     metrics: pd.DataFrame,
     losses: pd.DataFrame,
     noise_curve: pd.DataFrame,
+    parameter_table: pd.DataFrame,
     results_dir: Path,
 ) -> None:
     plot_loss_curves(losses, results_dir)
@@ -163,3 +252,6 @@ def write_all_plots(
     plot_fidelity_vs_noise(noise_curve, results_dir)
     plot_generation_quality_comparison(metrics, results_dir)
     plot_total_resource_tradeoff(metrics, results_dir)
+    plot_parameter_efficiency(parameter_table, results_dir)
+    plot_quality_vs_params(parameter_table, results_dir)
+    plot_parameter_reduction_vs_quality(parameter_table, results_dir)

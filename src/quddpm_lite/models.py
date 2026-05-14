@@ -5,7 +5,14 @@ import math
 import torch
 from torch import nn
 
+from .ancilla import (
+    ancilla_rotation_block,
+    append_ancilla_zero,
+    controlled_or_entangling_layer_with_ancilla,
+    project_ancilla,
+)
 from .utils import (
+    COMPLEX_DTYPE,
     apply_cz_chain,
     apply_ry,
     apply_rz,
@@ -164,6 +171,101 @@ class ClassicalNoiseReuploadingGenerator(nn.Module):
         return self.generator(angles)
 
 
+class IndependentStepQuDDPMDenoiser(nn.Module):
+    def __init__(
+        self,
+        qubits: int,
+        noise_steps: int,
+        depth: int,
+        hidden_dim: int = 128,
+        time_embedding_dim: int = 32,
+        input_mode: str = "density",
+    ):
+        super().__init__()
+        self.qubits = qubits
+        self.noise_steps = noise_steps
+        self.models = nn.ModuleList(
+            [
+                QuantumDenoiser(
+                    qubits=qubits,
+                    noise_steps=1,
+                    depth=depth,
+                    hidden_dim=hidden_dim,
+                    time_embedding_dim=time_embedding_dim,
+                    temporal_sharing=False,
+                    input_mode=input_mode,
+                )
+                for _ in range(noise_steps)
+            ]
+        )
+
+    def forward(self, noisy_state: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        t = t.long().clamp(0, self.noise_steps - 1)
+        batch_size = noisy_state.shape[0]
+        out = torch.zeros(
+            (batch_size, 2**self.qubits),
+            dtype=COMPLEX_DTYPE,
+            device=noisy_state.device,
+        )
+        for step, model in enumerate(self.models):
+            mask = t == step
+            if mask.any():
+                local_t = torch.zeros(mask.sum(), dtype=torch.long, device=t.device)
+                out[mask] = model(noisy_state[mask], local_t)
+        return out
+
+
+class AncillaToyDenoiser(nn.Module):
+    def __init__(
+        self,
+        qubits: int,
+        noise_steps: int,
+        depth: int,
+        hidden_dim: int = 128,
+        time_embedding_dim: int = 32,
+    ):
+        super().__init__()
+        self.qubits = qubits
+        self.total_qubits = qubits + 1
+        self.noise_steps = noise_steps
+        self.depth = depth
+        self.time_embedding_dim = time_embedding_dim
+        feature_dim = 2 * (2**qubits)
+        self.encoder = nn.Sequential(
+            nn.Linear(feature_dim + time_embedding_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.SiLU(),
+        )
+        self.angle_head = nn.Linear(hidden_dim, depth * self.total_qubits * 2)
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                nn.init.zeros_(module.bias)
+        nn.init.normal_(self.angle_head.bias, mean=0.0, std=0.02)
+
+    def forward(self, noisy_state: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        features = statevector_to_real_features(noisy_state)
+        time_features = sinusoidal_time_embedding(t.long(), self.time_embedding_dim, self.noise_steps)
+        hidden = self.encoder(torch.cat([features, time_features], dim=-1))
+        angles = self.angle_head(hidden).reshape(-1, self.depth, self.total_qubits, 2)
+        system_state = append_ancilla_zero(normalize_statevectors(noisy_state))
+        for layer in range(self.depth):
+            system_state = ancilla_rotation_block(
+                system_state=system_state,
+                angles=angles[:, layer],
+                data_qubits=self.qubits,
+            )
+            system_state = controlled_or_entangling_layer_with_ancilla(
+                system_state,
+                data_qubits=self.qubits,
+            )
+        return project_ancilla(system_state, data_qubits=self.qubits, outcome=0)
+
+
 class MSQuDDPMLite(QuantumDenoiser):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, temporal_sharing=False, **kwargs)
@@ -203,6 +305,16 @@ def build_model(
         return QuDDPMLiteBaselineDenoiser(**common)
     if model_name == "t_msquddpm":
         return TMSQuDDPMLite(**common)
+    if model_name == "independent_step_quddpm":
+        return IndependentStepQuDDPMDenoiser(**common)
+    if model_name == "ancilla_toy":
+        return AncillaToyDenoiser(
+            qubits=qubits,
+            noise_steps=noise_steps,
+            depth=depth,
+            hidden_dim=hidden_dim,
+            time_embedding_dim=time_embedding_dim,
+        )
     if model_name == "cnr":
         latent_dim = cnr_latent_dim if cnr_latent_dim > 0 else max(4, qubits * 2)
         return ClassicalNoiseReuploadingGenerator(
