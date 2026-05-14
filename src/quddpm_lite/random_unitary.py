@@ -4,7 +4,7 @@ import math
 
 import torch
 
-from utils import apply_cnot_chain, apply_cz_chain, apply_ry, apply_rz, normalize_statevectors, statevectors_to_density
+from .utils import apply_cnot_chain, apply_cz_chain, apply_ry, apply_rz, normalize_statevectors, statevectors_to_density
 
 
 @torch.no_grad()

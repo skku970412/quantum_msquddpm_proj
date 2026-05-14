@@ -5,19 +5,19 @@ from dataclasses import dataclass
 import pandas as pd
 import torch
 
-from config import ExperimentConfig
-from datasets import build_dataset
-from metrics import (
+from .config import ExperimentConfig
+from .datasets import build_dataset
+from .metrics import (
     mmd_fidelity,
     pure_density_fidelity,
     pure_state_fidelity,
     resource_metrics,
     wasserstein_fidelity_distance,
 )
-from models import build_model
-from noise import depolarizing_forward_from_states, linear_beta_schedule, statevector_depolarizing_proxy
-from random_unitary import random_unitary_forward_from_states, random_unitary_scramble_states
-from utils import resolve_device, set_seed, statevectors_to_density, timer
+from .models import build_model
+from .noise import depolarizing_forward_from_states, linear_beta_schedule, statevector_depolarizing_proxy
+from .random_unitary import random_unitary_forward_from_states, random_unitary_scramble_states
+from .utils import resolve_device, set_seed, statevectors_to_density, timer
 
 
 @dataclass

@@ -8,7 +8,7 @@ __pycache__/
 .ruff_cache/
 
 results/
+backups/
 
 .DS_Store
 Thumbs.db
-

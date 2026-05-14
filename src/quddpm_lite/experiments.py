@@ -6,11 +6,11 @@ from pathlib import Path
 import pandas as pd
 import torch
 
-from config import ExperimentConfig
-from noise import linear_beta_schedule
-from train import train_one
-from utils import ensure_dir, resolve_device, save_json
-from visualize import write_all_plots
+from .config import ExperimentConfig
+from .noise import linear_beta_schedule
+from .train import train_one
+from .utils import ensure_dir, resolve_device, save_json
+from .visualize import write_all_plots
 
 
 def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:

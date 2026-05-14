@@ -5,7 +5,7 @@ import math
 import torch
 from torch import nn
 
-from utils import (
+from .utils import (
     apply_cz_chain,
     apply_ry,
     apply_rz,

@@ -10,7 +10,7 @@ try:
 except ImportError:  # pragma: no cover - verified by dependency check.
     ot = None
 
-from utils import gpu_memory_mb, normalize_statevectors
+from .utils import gpu_memory_mb, normalize_statevectors
 
 
 def pure_state_fidelity(target: torch.Tensor, generated: torch.Tensor) -> torch.Tensor:

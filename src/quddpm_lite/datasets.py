@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import torch
 
-from utils import (
+from .utils import (
     COMPLEX_DTYPE,
     apply_cnot,
     apply_cnot_chain,

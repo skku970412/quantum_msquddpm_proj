@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from utils import COMPLEX_DTYPE, normalize_statevectors, statevectors_to_density
+from .utils import COMPLEX_DTYPE, normalize_statevectors, statevectors_to_density
 
 
 def linear_beta_schedule(
