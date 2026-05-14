@@ -126,6 +126,44 @@ class QuantumDenoiser(nn.Module):
         return self.generator(angles)
 
 
+class ClassicalNoiseReuploadingGenerator(nn.Module):
+    def __init__(
+        self,
+        qubits: int,
+        depth: int,
+        latent_dim: int,
+        hidden_dim: int = 128,
+    ):
+        super().__init__()
+        self.qubits = qubits
+        self.depth = depth
+        self.latent_dim = latent_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.SiLU(),
+        )
+        self.angle_head = nn.Linear(hidden_dim, depth * qubits * 2)
+        self.layer_bias = nn.Parameter(torch.zeros(depth, qubits, 2))
+        self.generator = RotationStateGenerator(qubits=qubits, depth=depth)
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                nn.init.zeros_(module.bias)
+        nn.init.normal_(self.angle_head.bias, mean=0.0, std=0.02)
+        nn.init.normal_(self.layer_bias, mean=0.0, std=0.02)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        hidden = self.encoder(z.to(torch.float32))
+        angles = self.angle_head(hidden).reshape(-1, self.depth, self.qubits, 2)
+        angles = angles + self.layer_bias.unsqueeze(0)
+        return self.generator(angles)
+
+
 class MSQuDDPMLite(QuantumDenoiser):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, temporal_sharing=False, **kwargs)
@@ -149,6 +187,7 @@ def build_model(
     hidden_dim: int,
     time_embedding_dim: int,
     input_mode: str = "density",
+    cnr_latent_dim: int = 0,
 ) -> nn.Module:
     common = dict(
         qubits=qubits,
@@ -164,4 +203,12 @@ def build_model(
         return QuDDPMLiteBaselineDenoiser(**common)
     if model_name == "t_msquddpm":
         return TMSQuDDPMLite(**common)
+    if model_name == "cnr":
+        latent_dim = cnr_latent_dim if cnr_latent_dim > 0 else max(4, qubits * 2)
+        return ClassicalNoiseReuploadingGenerator(
+            qubits=qubits,
+            depth=depth,
+            latent_dim=latent_dim,
+            hidden_dim=hidden_dim,
+        )
     raise ValueError(f"Unknown model: {model_name}")

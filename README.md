@@ -1,175 +1,130 @@
-# QuDDPM-lite PyTorch 실험 노트
+# QuDDPM-lite PyTorch Sandbox
 
-양자 diffusion 모델이 실제로 어떤 모양으로 움직이는지 궁금해서, Qiskit이나 PennyLane 없이 PyTorch만으로 작게 돌려본 실험입니다. 전체 QuDDPM을 그대로 재현하려는 코드는 아니고, 6-qubit 상태에서 noise를 넣고 denoiser가 clean state를 얼마나 되찾는지 확인하는 가벼운 sandbox에 가깝습니다.
+이 프로젝트는 **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**입니다. 논문 완전 재현이나 하드웨어 수준 구현이 아니라, forward diffusion, denoising, prior-based generation evaluation, metric calculation, resource comparison을 팀 단위로 빠르게 실험하기 위한 PyTorch 기반 벤치마크입니다.
 
-CUDA가 있으면 GPU를 쓰고, 없으면 CPU로 돌아갑니다.
+CUDA가 있으면 GPU를 사용하고, 없으면 CPU에서 실행됩니다.
 
-## 해본 것
+## Project Scope
 
-- 6-qubit pure state ensemble 생성
-- density matrix 기반 depolarizing forward process 구현
-- random-unitary scrambling을 쓰는 baseline 추가
-- MSQuDDPM-lite, T-MSQuDDPM-lite 형태의 denoiser 비교
-- `T=10/20`, `depth=2/4`, seed 3개 조합으로 반복 실행
-- fidelity, MMD, Wasserstein distance와 간단한 resource metric 기록
-- CSV 결과와 PNG figure 자동 저장
+- 논문 전체 재현이 아닙니다.
+- 본선 문제를 미리 정답 구현한 코드도 아닙니다.
+- 목표는 작은 qubit 수와 가벼운 실험 설정에서 QuDDPM 계열 workflow를 반복 검증하는 것입니다.
 
-사용한 depolarizing channel은 아래처럼 단순하게 두었습니다.
+Application note:
 
-```text
-rho_noisy = (1 - beta) * rho + beta * I / dim
-```
+> 이 프로젝트는 본선 세부 문제의 정답을 미리 구현한 것이 아니라, Quantum DDPM 계열 문제에 필요한 forward diffusion, denoising, generation evaluation, metric calculation, resource comparison을 팀 단위로 사전 연습하기 위한 PyTorch 기반 sandbox입니다.
 
-## 비교한 모델
+## What Was Added In This Version
 
-| 모델 | 이 실험에서의 역할 |
+- true `smoke` / `mini` preset
+- prior-based generation evaluation
+- `cnr` one-step comparator
+- cumulative depolarizing schedule
+- forward corruption logging
+- extended resource metrics
+
+## Models
+
+| 모델 | 역할 |
 |---|---|
-| `msquddpm` | depolarizing noise를 되돌리는 기본 denoiser |
-| `quddpm_baseline` | random single-qubit rotation과 entangling layer로 만든 baseline |
-| `t_msquddpm` | time embedding과 temporal parameter sharing을 넣은 변형 |
+| `msquddpm` | depolarizing forward를 되돌리는 기본 denoiser |
+| `quddpm_baseline` | random-unitary forward를 쓰는 baseline denoiser |
+| `t_msquddpm` | temporal sharing을 넣은 denoiser 변형 |
+| `cnr` | latent classical noise에서 직접 상태를 생성하는 one-step comparator |
 
-## 저장해둔 실행 결과
+`cnr`는 QuDDPM 대체 모델이 아니라, **target-conditioned denoising 없이 latent classical noise만으로 ensemble을 생성하는 single-step comparator**입니다. post-selection 없이 resource-efficient한 비교군으로 두었습니다.
 
-`results_twohour/`에는 조금 길게 돌린 결과를 남겨두었습니다.
+## Presets
 
-```bash
-python main.py --preset twohour --results-dir results_twohour
-python verify_results.py --results-dir results_twohour
-```
+| preset | 기본 목적 | 기본 설정 요약 |
+|---|---|---|
+| `smoke` | CPU/GPU 빠른 검증 | 2 qubits, 16 states, 1 epoch, `msquddpm` |
+| `mini` | 짧은 기능 검증 | 4 qubits, 64 states, 10 epochs, `msquddpm/t_msquddpm/cnr` |
+| `twohour` | 기존 스타일 장시간 벤치마크 | 6 qubits, 512 states, 400 epochs |
+| `research` | 기본 연구용 defaults | 6 qubits, 512 states, 1000 epochs |
+| `full` | 더 큰 장기 실행 | 6 qubits, 1024 states, 3000 epochs |
 
-그 실행에서 확인한 조건은 아래와 같습니다.
+## Reconstruction Vs Generation
 
-| 항목 | 값 |
-|---|---:|
-| qubits | 6 |
-| input mode | density matrix |
-| Hilbert dimension | 64 |
-| density matrix | 64 x 64 complex64 |
-| dataset size | 512 |
-| epochs | 400 |
-| batch size | 128 |
-| seeds | 0, 1, 2 |
-| noise steps | 10, 20 |
-| PQC depth | 2, 4 |
-| device | cuda |
-| recorded train runtime | 48.87 min |
-| peak recorded GPU memory | 52.65 MB |
+- reconstruction:
+  clean target state에서 noisy input을 만든 뒤, model이 clean state를 얼마나 복원하는지 평가합니다.
+- generation:
+  target input을 직접 주지 않고 prior에서 시작해 generated ensemble을 만들고, 그 ensemble이 target test ensemble과 얼마나 가까운지 평가합니다.
 
-전체 조합 평균은 다음처럼 나왔습니다.
+이 둘은 의도적으로 분리되어 있으며, `metrics.csv`에는 reconstruction metric과 generation metric이 각각 따로 저장됩니다.
 
-| 모델 | Fidelity ↑ | MMD ↓ | Wasserstein ↓ | 평균 runtime / row |
-|---|---:|---:|---:|---:|
-| `msquddpm` | 0.8012 | 0.0245 | 0.2182 | 74.42 s |
-| `quddpm_baseline` | 0.2051 | 0.4552 | 0.7168 | 95.77 s |
-| `t_msquddpm` | 0.7927 | 0.0257 | 0.2258 | 74.14 s |
+주요 컬럼 예시는 다음과 같습니다.
 
-높은 fidelity를 보인 설정은 대체로 depth 4 쪽이었습니다.
+- reconstruction:
+  `reconstruction_fidelity`, `reconstruction_pure_state_fidelity`, `reconstruction_mmd`, `reconstruction_wasserstein`
+- generation:
+  `generation_mmd`, `generation_wasserstein`, `generation_nearest_fidelity_mean`, `generation_prior_mode`, `generation_sampling_mode`
 
-| 모델 | T | Depth | Fidelity mean |
-|---|---:|---:|---:|
-| `msquddpm` | 20 | 4 | 0.9078 |
-| `msquddpm` | 10 | 4 | 0.9066 |
-| `t_msquddpm` | 10 | 4 | 0.9037 |
-| `t_msquddpm` | 20 | 4 | 0.8880 |
+호환성을 위해 기존 `fidelity`, `mmd`, `wasserstein` 컬럼도 유지합니다.
 
-가볍게 해석하면, depolarizing noise를 넣은 경우에는 `msquddpm` 계열이 꽤 잘 복원했고, time-sharing을 넣은 `t_msquddpm`도 큰 손해 없이 비슷하게 따라왔습니다. 반대로 random-unitary baseline은 forward process 자체가 상태를 더 강하게 섞어서 fidelity가 낮게 나왔습니다.
+- denoiser 계열은 reconstruction 값을 넣습니다.
+- `cnr`는 generation 지표를 넣습니다.
 
-## Figure
+## Forward Processes
 
-모델별 fidelity 평균을 비교한 그림입니다. depolarizing noise를 되돌리는 `msquddpm` 계열과 random-unitary baseline의 차이가 가장 먼저 보입니다.
+지원하는 forward corruption은 다음 두 계열입니다.
 
-![Fidelity comparison](results_twohour/fidelity_comparison.png)
+- `random_unitary`
+  `quddpm_baseline`에 사용됩니다.
+- `depolarizing`
+  `msquddpm`, `t_msquddpm`에 사용됩니다.
 
-MMD와 Wasserstein distance를 같이 본 그림입니다. fidelity만 볼 때와 비슷하게, baseline 쪽 분포 차이가 더 크게 잡힙니다.
+depolarizing schedule은 두 모드를 지원합니다.
 
-![MMD and Wasserstein comparison](results_twohour/mmd_wasserstein_comparison.png)
+- `single_beta`
+  `rho_t = (1 - beta_t) rho_0 + beta_t I / d`
+- `cumulative`
+  `rho_t = alpha_bar_t rho_0 + (1 - alpha_bar_t) I / d`
 
-성능과 자원 사용량을 같이 보려고 만든 tradeoff 그림입니다. 같은 qubit 수에서도 depth와 모델 구조에 따라 runtime과 gate count가 어떻게 달라지는지 확인할 수 있습니다.
+`noise_curve.csv`에는 다음 컬럼이 저장됩니다.
 
-![Resource tradeoff](results_twohour/resource_tradeoff.png)
+- `step`
+- `beta`
+- `alpha`
+- `alpha_bar`
+- `expected_fidelity_single_beta`
+- `expected_fidelity_cumulative`
 
-depolarizing noise 강도에 따라 기대 fidelity가 어떻게 내려가는지 확인한 곡선입니다. denoising 결과를 해석할 때 noise schedule의 기본 모양을 보는 용도입니다.
+## Fairness And Limitations
 
-![Fidelity under depolarizing noise](results_twohour/fidelity_vs_noise.png)
+- random-unitary forward와 depolarizing forward는 corruption strength가 자동으로 같아지지 않습니다.
+- 그래서 각 run에 `forward_final_target_noisy_fidelity_mean`과 `forward_process_type`을 같이 기록합니다.
+- generation evaluation은 prior-based이지만, 현재 reverse chain은 논문 수준의 exact Markov sampler가 아니라 lightweight surrogate입니다.
+- `cnr`는 QuDDPM 대체가 아니라 comparator입니다.
+- resource metrics는 실제 hardware transpilation count가 아니라 heuristic estimate입니다.
 
-`msquddpm` 학습 중 loss가 어떻게 움직였는지 저장한 곡선입니다. seed와 ablation 조합별로 수렴 양상을 빠르게 확인하는 용도입니다.
+명시적으로, **estimated resource metrics are heuristic, not transpiled hardware counts** 입니다.
 
-![MSQuDDPM-lite loss curve](results_twohour/loss_curve_msquddpm.png)
+또한 depolarizing channel의 physical cost를 explicit unitary depth와 동일시하지 않기 위해, `channel_application_count`를 별도 컬럼으로 분리해 기록합니다.
 
-random-unitary baseline의 loss curve입니다. forward process가 더 강하게 상태를 섞기 때문에 다른 denoiser와 다른 학습 난이도를 보입니다.
+## Resource Metrics
 
-![QuDDPM-lite baseline loss curve](results_twohour/loss_curve_baseline.png)
+`metrics.csv`에는 기존 parameter/depth 추정 외에 다음 컬럼이 추가되었습니다.
 
-time-sharing을 넣은 `t_msquddpm`의 loss curve입니다. parameter sharing을 넣어도 기본 `msquddpm`과 비슷한 방향으로 학습되는지 확인하려고 남겼습니다.
+- `denoiser_depth_per_step`
+- `denoiser_two_qubit_gates_per_step`
+- `denoiser_single_qubit_rotations_per_step`
+- `total_reverse_depth`
+- `total_reverse_two_qubit_gate_count`
+- `total_reverse_single_qubit_rotation_count`
+- `forward_unitary_depth`
+- `forward_two_qubit_gate_count`
+- `channel_application_count`
+- `total_estimated_depth`
+- `total_estimated_two_qubit_gate_count`
+- `generation_call_count`
+- `resource_notes`
 
-![T-MSQuDDPM-lite loss curve](results_twohour/loss_curve_t_msquddpm.png)
+요약 집계는 `summary_table.csv`에 들어가며, generation quality와 total resource 평균도 함께 저장됩니다.
 
-## 코드 구조
+## Outputs
 
-```text
-.
-├── main.py                  # 실행용 얇은 wrapper
-├── verify_results.py        # 결과 검사용 wrapper
-├── src/
-│   └── quddpm_lite/
-│       ├── cli.py
-│       ├── config.py
-│       ├── datasets.py
-│       ├── experiments.py
-│       ├── metrics.py
-│       ├── models.py
-│       ├── noise.py
-│       ├── random_unitary.py
-│       ├── train.py
-│       ├── utils.py
-│       ├── verify.py
-│       └── visualize.py
-├── results_twohour/
-├── requirements.txt
-└── twohour_conditions.md
-```
-
-파일별 역할은 대략 이렇습니다.
-
-| 파일 | 역할 |
-|---|---|
-| `src/quddpm_lite/config.py` | `smoke`, `mini`, `twohour`, `research`, `full` preset |
-| `src/quddpm_lite/datasets.py` | product, entangled, Bell-pair state ensemble 생성 |
-| `src/quddpm_lite/noise.py` | depolarizing channel과 8-qubit statevector proxy |
-| `src/quddpm_lite/random_unitary.py` | random-unitary forward process |
-| `src/quddpm_lite/models.py` | denoiser 모델 정의 |
-| `src/quddpm_lite/train.py` | 학습과 평가 루프 |
-| `src/quddpm_lite/experiments.py` | seed/model/ablation grid 실행과 결과 저장 |
-| `src/quddpm_lite/visualize.py` | CSV 결과를 PNG figure로 변환 |
-| `src/quddpm_lite/verify.py` | 저장된 결과 파일과 metric row 확인 |
-
-## 실행
-
-환경은 보통 아래처럼 만들면 됩니다.
-
-```bash
-python3 -m venv .venv --system-site-packages
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-빠르게 코드가 도는지만 확인하려면 smoke preset을 쓰면 됩니다.
-
-```bash
-python main.py --preset smoke --results-dir results
-python verify_results.py --results-dir results
-```
-
-조금 더 길게 남겨둔 결과를 다시 만들려면:
-
-```bash
-python main.py --preset twohour --results-dir results_twohour
-python verify_results.py --results-dir results_twohour
-```
-
-## 산출물
-
-실행하면 결과 폴더에 아래 파일들이 생깁니다.
+실행하면 결과 폴더에 보통 아래 파일들이 생성됩니다.
 
 - `metrics.csv`
 - `summary_table.csv`
@@ -180,8 +135,76 @@ python verify_results.py --results-dir results_twohour
 - `mmd_wasserstein_comparison.png`
 - `resource_tradeoff.png`
 - `fidelity_vs_noise.png`
-- `loss_curve_msquddpm.png`
-- `loss_curve_baseline.png`
-- `loss_curve_t_msquddpm.png`
+- `generation_quality_comparison.png`
+- `total_resource_tradeoff.png`
+- 모델별 `loss_curve_*.png`
 
-기존에 길게 돌려둔 결과는 `results_twohour/`에 있고, 빠른 smoke 실행은 기본적으로 `.gitignore`에 들어간 `results/`에 생성됩니다.
+## Recommended Commands
+
+smoke:
+
+```bash
+python main.py --preset smoke --results-dir results_smoke
+python verify_results.py --results-dir results_smoke
+```
+
+mini with CNR:
+
+```bash
+python main.py --preset mini --models msquddpm t_msquddpm cnr --results-dir results_mini
+python verify_results.py --results-dir results_mini
+```
+
+twohour original benchmark:
+
+```bash
+python main.py --preset twohour --results-dir results_twohour_new
+python verify_results.py --results-dir results_twohour_new
+```
+
+baseline-only smoke:
+
+```bash
+python main.py --preset smoke --models quddpm_baseline --results-dir results_smoke_baseline
+python verify_results.py --results-dir results_smoke_baseline
+```
+
+## CLI Notes
+
+자주 쓰는 옵션은 아래와 같습니다.
+
+- `--models msquddpm t_msquddpm cnr`
+- `--dataset-kind cluster1q`
+- `--depolarizing-mode cumulative`
+- `--prior-mode random_pure|maximally_mixed_jitter|depolarized_random`
+- `--generation-sampling-mode one_step|iterative`
+
+## Code Layout
+
+```text
+.
+├── main.py
+├── verify_results.py
+├── src/quddpm_lite/
+│   ├── cli.py
+│   ├── config.py
+│   ├── datasets.py
+│   ├── experiments.py
+│   ├── metrics.py
+│   ├── models.py
+│   ├── noise.py
+│   ├── random_unitary.py
+│   ├── train.py
+│   ├── utils.py
+│   ├── verify.py
+│   └── visualize.py
+└── results_twohour/
+```
+
+## Setup
+
+```bash
+python3 -m venv .venv --system-site-packages
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+```

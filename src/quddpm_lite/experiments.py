@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 
 from .config import ExperimentConfig
-from .noise import linear_beta_schedule
+from .noise import alpha_bar_schedule, expected_fidelity_under_depolarizing, linear_beta_schedule
 from .train import train_one
 from .utils import ensure_dir, resolve_device, save_json
 from .visualize import write_all_plots
@@ -19,6 +19,16 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
         .agg(
             fidelity_mean=("fidelity", "mean"),
             fidelity_std=("fidelity", "std"),
+            reconstruction_fidelity_mean=("reconstruction_fidelity", "mean"),
+            reconstruction_pure_state_fidelity_mean=(
+                "reconstruction_pure_state_fidelity",
+                "mean",
+            ),
+            reconstruction_mmd_mean=("reconstruction_mmd", "mean"),
+            reconstruction_wasserstein_mean=("reconstruction_wasserstein", "mean"),
+            generation_mmd_mean=("generation_mmd", "mean"),
+            generation_wasserstein_mean=("generation_wasserstein", "mean"),
+            generation_nearest_fidelity_mean=("generation_nearest_fidelity_mean", "mean"),
             mmd_mean=("mmd", "mean"),
             mmd_std=("mmd", "std"),
             wasserstein_mean=("wasserstein", "mean"),
@@ -26,6 +36,22 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
             runtime_sec_mean=("runtime_sec", "mean"),
             trainable_parameters_mean=("trainable_parameters", "mean"),
             estimated_two_qubit_gate_count_mean=("estimated_two_qubit_gate_count", "mean"),
+            total_estimated_depth_mean=("total_estimated_depth", "mean"),
+            total_estimated_two_qubit_gate_count_mean=(
+                "total_estimated_two_qubit_gate_count",
+                "mean",
+            ),
+            total_reverse_depth_mean=("total_reverse_depth", "mean"),
+            channel_application_count_mean=("channel_application_count", "mean"),
+            forward_final_target_noisy_fidelity_mean=(
+                "forward_final_target_noisy_fidelity_mean",
+                "mean",
+            ),
+            generation_prior_mode=("generation_prior_mode", "first"),
+            generation_sampling_mode=("generation_sampling_mode", "first"),
+            forward_process_type=("forward_process_type", "first"),
+            depolarizing_mode=("depolarizing_mode", "first"),
+            resource_notes=("resource_notes", "first"),
             gpu_memory_mb_max=("gpu_memory_mb", "max"),
         )
         .reset_index()
@@ -36,9 +62,14 @@ def _write_summaries(metrics: pd.DataFrame, results_dir: Path) -> None:
         metrics.groupby(["model", "seed"])
         .agg(
             fidelity_mean=("fidelity", "mean"),
+            reconstruction_fidelity_mean=("reconstruction_fidelity", "mean"),
+            generation_mmd_mean=("generation_mmd", "mean"),
+            generation_wasserstein_mean=("generation_wasserstein", "mean"),
+            generation_nearest_fidelity_mean=("generation_nearest_fidelity_mean", "mean"),
             mmd_mean=("mmd", "mean"),
             wasserstein_mean=("wasserstein", "mean"),
             runtime_sec_mean=("runtime_sec", "mean"),
+            total_estimated_depth_mean=("total_estimated_depth", "mean"),
         )
         .reset_index()
     )
@@ -49,13 +80,27 @@ def _noise_curve(config: ExperimentConfig) -> pd.DataFrame:
     device = resolve_device(config.device)
     steps = max(config.noise_steps_grid)
     betas = linear_beta_schedule(steps, config.beta_start, config.beta_end, device=device).cpu()
+    alphas = 1.0 - betas
+    alpha_bar = alpha_bar_schedule(betas)
     dim = 2**config.qubits
-    expected_fidelity = 1.0 - betas + betas / dim
+    expected_single = expected_fidelity_under_depolarizing(
+        betas=betas,
+        dim=dim,
+        mode="single_beta",
+    )
+    expected_cumulative = expected_fidelity_under_depolarizing(
+        betas=betas,
+        dim=dim,
+        mode="cumulative",
+    )
     return pd.DataFrame(
         {
-            "step": list(range(1, steps + 1)),
+            "step": list(range(steps)),
             "beta": betas.numpy(),
-            "expected_fidelity": expected_fidelity.numpy(),
+            "alpha": alphas.numpy(),
+            "alpha_bar": alpha_bar.numpy(),
+            "expected_fidelity_single_beta": expected_single.numpy(),
+            "expected_fidelity_cumulative": expected_cumulative.numpy(),
         }
     )
 

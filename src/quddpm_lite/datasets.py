@@ -78,6 +78,8 @@ def make_state_ensemble(
 ) -> tuple[torch.Tensor, list[str]]:
     if kind == "product":
         return make_product_clustered_states(size, qubits, device), ["product"] * size
+    if kind == "cluster1q":
+        return make_product_clustered_states(size, qubits, device), ["cluster1q"] * size
     if kind == "entangled":
         return make_entangled_clustered_states(size, qubits, device), ["entangled"] * size
     if kind == "bell":
@@ -116,4 +118,3 @@ def build_dataset(
         all_states=states,
         labels=labels,
     )
-

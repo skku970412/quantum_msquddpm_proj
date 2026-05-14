@@ -21,6 +21,7 @@ class ExperimentConfig:
     noise_steps_grid: list[int] = field(default_factory=lambda: [10, 20])
     beta_start: float = 0.01
     beta_end: float = 0.15
+    depolarizing_mode: str = "single_beta"
 
     epochs: int = 1000
     max_epochs: int = 3000
@@ -35,9 +36,16 @@ class ExperimentConfig:
     models: list[str] = field(
         default_factory=lambda: ["msquddpm", "quddpm_baseline", "t_msquddpm"]
     )
+    cnr_latent_dim: int = 0
     mmd_subset: int = 256
     wasserstein_subset: int = 256
     eval_subset: int = 256
+    prior_mode: str = "depolarized_random"
+    generation_sampling_mode: str = "one_step"
+    prior_mixed_epsilon: float = 0.05
+    prior_depolarizing_beta: float = 0.85
+    match_corruption: bool = False
+    corruption_match_subset: int = 64
     device: str = "auto"
     include_8qubit: bool = False
 
@@ -50,24 +58,44 @@ def preset_config(preset: str) -> ExperimentConfig:
     if preset == "smoke":
         return replace(
             base,
-            dataset_size=48,
-            epochs=2,
-            batch_size=16,
-            hidden_dim=48,
-            mmd_subset=32,
-            wasserstein_subset=32,
-            eval_subset=32,
+            qubits=2,
+            dataset_size=16,
+            train_fraction=0.8,
+            dataset_kind="cluster1q",
+            noise_steps=2,
+            noise_steps_grid=[2],
+            epochs=1,
+            batch_size=8,
+            seeds=[0],
+            depth=1,
+            depth_grid=[1],
+            hidden_dim=32,
+            time_embedding_dim=16,
+            models=["msquddpm"],
+            cnr_latent_dim=4,
+            mmd_subset=16,
+            wasserstein_subset=16,
+            eval_subset=16,
         )
     if preset == "mini":
         return replace(
             base,
-            dataset_size=128,
-            epochs=20,
-            batch_size=32,
-            hidden_dim=64,
-            mmd_subset=64,
-            wasserstein_subset=64,
-            eval_subset=64,
+            qubits=4,
+            dataset_size=64,
+            noise_steps=3,
+            noise_steps_grid=[3],
+            epochs=10,
+            batch_size=16,
+            seeds=[0],
+            depth=1,
+            depth_grid=[1],
+            hidden_dim=48,
+            time_embedding_dim=16,
+            models=["msquddpm", "t_msquddpm", "cnr"],
+            cnr_latent_dim=8,
+            mmd_subset=32,
+            wasserstein_subset=32,
+            eval_subset=32,
         )
     if preset == "twohour":
         return replace(

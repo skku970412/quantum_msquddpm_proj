@@ -19,18 +19,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-dir", default="results")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--dataset-size", type=int)
+    parser.add_argument("--qubits", type=int)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--hidden-dim", type=int)
-    parser.add_argument("--dataset-kind", choices=["mixed", "product", "entangled", "bell"])
+    parser.add_argument("--time-embedding-dim", type=int)
+    parser.add_argument("--cnr-latent-dim", type=int)
+    parser.add_argument(
+        "--dataset-kind",
+        choices=["mixed", "product", "cluster1q", "entangled", "bell"],
+    )
     parser.add_argument("--input-mode", choices=["density", "statevector"])
+    parser.add_argument("--prior-mode", choices=["random_pure", "maximally_mixed_jitter", "depolarized_random"])
+    parser.add_argument("--depolarizing-mode", choices=["single_beta", "cumulative"])
+    parser.add_argument("--generation-sampling-mode", choices=["one_step", "iterative"])
     parser.add_argument("--seeds", type=int, nargs="+")
     parser.add_argument("--noise-steps-grid", type=int, nargs="+")
     parser.add_argument("--depth-grid", type=int, nargs="+")
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=["msquddpm", "quddpm_baseline", "t_msquddpm"],
+        choices=["msquddpm", "quddpm_baseline", "t_msquddpm", "cnr"],
     )
     parser.add_argument("--include-8qubit", action="store_true")
     return parser.parse_args()
@@ -49,7 +58,20 @@ def main() -> None:
         "device": args.device,
         "include_8qubit": args.include_8qubit,
     }
-    for key in ["dataset_size", "epochs", "batch_size", "hidden_dim", "dataset_kind", "input_mode"]:
+    for key in [
+        "dataset_size",
+        "qubits",
+        "epochs",
+        "batch_size",
+        "hidden_dim",
+        "time_embedding_dim",
+        "cnr_latent_dim",
+        "dataset_kind",
+        "input_mode",
+        "prior_mode",
+        "depolarizing_mode",
+        "generation_sampling_mode",
+    ]:
         value = getattr(args, key)
         if value is not None:
             updates[key] = value

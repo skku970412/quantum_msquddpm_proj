@@ -8,7 +8,10 @@ __pycache__/
 .ruff_cache/
 
 results/
+results_*/
 backups/
+11.14.1
+적용해야할거.md
 
 .DS_Store
 Thumbs.db
