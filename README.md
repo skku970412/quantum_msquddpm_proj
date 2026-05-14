@@ -1,11 +1,11 @@
-# QuDDPM 계열 경량 벤치마크 샌드박스
+# QuDDPM Lightweight Benchmark Sandbox
 
 > **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**  
 > 이 저장소는 논문 완전 재현이나 실제 양자 하드웨어 성능 검증을 목표로 하지 않는다. 목적은 Quantum DDPM 계열 문제를 대비하기 위해 forward diffusion, denoising, prior-based generation evaluation, metric calculation, resource comparison을 작은 규모에서 빠르게 실험하고, 각 방법의 장점과 한계를 구조적으로 비교하는 것이다.
 
 ---
 
-## 초록
+## Abstract
 
 본 프로젝트는 Quantum Denoising Diffusion Probabilistic Model, QuDDPM 계열의 핵심 구성요소를 PyTorch 기반으로 단순화하여 구현한 연구형 사전 실험 플랫폼이다. 공개된 QuDDPM 계열 연구는 quantum state ensemble을 생성 대상으로 보고, forward process에서 target quantum data를 noise 또는 scrambled distribution으로 이동시키며, reverse process에서 parameterized model을 통해 target distribution을 복원하거나 생성하는 구조를 제안한다. 본 프로젝트는 이 아이디어를 본선 해커톤 대비용으로 축소하여, 작은 qubit 수에서 random-unitary forward, depolarizing-channel forward, denoising model, one-step generator comparator, metric evaluation, resource accounting을 비교한다.
 
@@ -21,7 +21,7 @@
 
 ---
 
-## 프로젝트 범위
+## Project Scope
 
 이 프로젝트는 다음을 목표로 한다.
 
@@ -47,9 +47,9 @@
 
 ---
 
-## 선행연구와 문제의식
+## Background and Motivation
 
-### DDPM과 생성모델
+### DDPM and Generative Modeling
 
 Denoising Diffusion Probabilistic Model, DDPM은 데이터를 점진적으로 noise화하는 forward process와, 그 역과정을 학습하는 reverse process를 통해 복잡한 데이터 분포를 생성하는 모델이다. 고전 생성모델에서 diffusion model은 안정적인 학습과 고품질 생성 능력을 보여주었고, 이 아이디어는 quantum data distribution에도 확장될 수 있다.
 
@@ -67,11 +67,11 @@ target quantum state ensemble
 
 QuDDPM류 방법의 핵심은 단일 quantum state를 맞추는 것이 아니라, state ensemble의 분포를 학습한다는 점이다. 따라서 단일 fidelity만으로는 충분하지 않으며, MMD나 Wasserstein distance와 같은 ensemble-level metric이 필요하다.
 
-### MSQuDDPM 계열 아이디어
+### MSQuDDPM-style Idea
 
 Random-unitary scrambling은 표현력 측면에서는 유용하지만, explicit circuit depth와 two-qubit gate cost를 증가시킬 수 있다. MSQuDDPM 계열 아이디어는 forward process를 depolarizing noise channel로 단순화하여, random-unitary gate sequence를 직접 쌓는 부담을 줄이는 방향을 제시한다. 본 프로젝트에서는 이를 `msquddpm`와 `t_msquddpm`의 depolarizing forward로 단순화해 실험한다.
 
-### TQuDDPM 계열 아이디어
+### TQuDDPM-style Idea
 
 Diffusion step마다 독립적인 denoiser를 두면 parameter count와 optimizer burden이 증가한다. TQuDDPM 계열 아이디어는 temporal encoding 또는 parameter sharing을 통해 step-wise parameter growth를 줄이는 방향을 제시한다. 본 프로젝트에서는 `independent_step_quddpm`을 naive upper-cost baseline으로 두고, `t_msquddpm`와 비교하여 temporal sharing의 parameter-efficiency를 관찰한다.
 
@@ -81,35 +81,35 @@ Diffusion step마다 독립적인 denoiser를 두면 parameter count와 optimize
 
 ---
 
-## 연구 질문
+## Research Questions
 
 본 프로젝트의 연구 질문은 다음과 같다.
 
-### RQ1. Reconstruction과 generation은 어떻게 다른가?
+### RQ1. How do reconstruction and generation differ?
 
 Denoising benchmark는 target state에서 noisy input을 만든 뒤 clean target을 복원한다. 반면 generation benchmark는 target input 없이 prior에서 시작하여 generated ensemble을 만들고, 이를 target test ensemble과 비교한다. 본 프로젝트는 두 평가를 의도적으로 분리한다.
 
-### RQ2. Random-unitary forward와 depolarizing forward는 공정하게 비교되고 있는가?
+### RQ2. Are random-unitary and depolarizing forwards compared fairly?
 
 두 forward process는 물리적으로 동일하지 않으며, corruption strength도 자동으로 같아지지 않는다. 본 프로젝트는 final target-noisy fidelity를 operational 기준으로 삼아 forward severity를 기록하고, `match_corruption` 옵션으로 비교 조건을 맞추는 calibration을 제공한다.
 
-### RQ3. Temporal parameter sharing은 parameter growth를 줄이는가?
+### RQ3. Does temporal parameter sharing reduce parameter growth?
 
 `independent_step_quddpm`은 diffusion step마다 별도 denoiser를 갖는 naive baseline이다. `t_msquddpm`는 shared denoiser와 time conditioning을 사용한다. 두 모델의 parameter count와 quality metric을 비교하여 parameter-efficiency를 확인한다.
 
-### RQ4. One-step generator comparator는 어떤 위치에 있는가?
+### RQ4. Where does the one-step generator comparator sit?
 
 `cnr`는 generation-only one-step comparator이다. 이 모델은 reconstruction metric이 아니라 generation MMD, generation Wasserstein, nearest fidelity로 평가한다. 이를 통해 diffusion-style model과 one-step generator의 trade-off를 비교한다.
 
-### RQ5. Resource metric은 어떻게 분리해 보고해야 하는가?
+### RQ5. How should resource metrics be separated and reported?
 
 Depolarizing channel의 physical cost를 explicit random-unitary depth와 동일시하면 안 된다. 따라서 본 프로젝트는 explicit unitary depth, total reverse depth, channel application count, trainable parameter count, runtime을 분리해 기록한다.
 
 ---
 
-## 방법론
+## Methodology
 
-### 전체 파이프라인
+### Overall Pipeline
 
 ```text
 quantum state ensemble 생성
@@ -121,7 +121,7 @@ quantum state ensemble 생성
 → report 생성
 ```
 
-### 데이터 표현
+### Data Representation
 
 프로젝트는 작은 qubit 수의 statevector 및 density matrix를 사용한다. 주요 실험에서는 density matrix 기반 forward process와 pure-state target ensemble을 함께 다룬다. 지원되는 prior mode는 다음과 같다.
 
@@ -170,7 +170,7 @@ rho_t = alpha_bar_t rho_0 + (1 - alpha_bar_t) I / d
 - `calibrated_alpha_bar_final`
 - `corruption_match_method`
 
-### 모델
+### Models
 
 | 모델 | 역할 | 핵심 해석 |
 |---|---|---|
@@ -181,7 +181,7 @@ rho_t = alpha_bar_t rho_0 + (1 - alpha_bar_t) I / d
 | `independent_step_quddpm` | step-wise independent baseline | parameter growth reference |
 | `ancilla_toy` | post-selection concept demo | data+ancilla PQC와 measurement idea 확인 |
 
-### 평가 지표
+### Metrics
 
 Reconstruction metric:
 
@@ -218,7 +218,24 @@ Post-selection metric:
 
 ---
 
-## 대표 벤치마크
+## Research Environment
+
+README 대표 benchmark와 figure는 아래 환경에서 생성했다.
+
+| Item | Value |
+|---|---|
+| OS | Linux 5.4.0-173-generic x86_64 |
+| Python | 3.12.3 |
+| PyTorch | 2.8.0a0+5228986c39.nv25.05 |
+| CUDA | 12.9 |
+| GPU | NVIDIA A100-SXM4-80GB |
+| GPU count | 1 |
+
+이 저장소는 CPU에서도 실행되지만, `twohour_readme` benchmark와 README figure는 위 GPU 환경에서 생성했다.
+
+---
+
+## Representative Benchmark
 
 README용 대표 결과는 `twohour_readme` preset으로 생성했다.
 
@@ -243,7 +260,7 @@ python main.py --preset twohour_readme --results-dir results_readme_twohour
 | generation sampling | `one_step` |
 | match corruption | enabled |
 
-### 결과 요약
+### Result Summary
 
 | 모델 | Reconstruction Fidelity ↑ | Generation MMD ↓ | Generation Wasserstein ↓ | Nearest Fidelity ↑ | Params ↓ | Total Depth ↓ | Runtime sec ↓ |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -277,7 +294,7 @@ python main.py --preset twohour_readme --results-dir results_readme_twohour
 
 ---
 
-## 그림
+## Figures
 
 대표 결과 폴더는 `results_readme_twohour/`이다.
 
@@ -324,9 +341,9 @@ python main.py --preset twohour_readme --results-dir results_readme_twohour
 
 ---
 
-## 재현 방법
+## Reproducibility
 
-### 설치
+### Installation
 
 ```bash
 pip install -r requirements.txt
@@ -334,7 +351,7 @@ pip install -r requirements.txt
 
 CUDA가 있으면 GPU를 사용하고, 없으면 CPU에서 실행된다.
 
-### 빠른 smoke test
+### Quick smoke test
 
 ```bash
 python main.py --preset smoke --results-dir results_smoke
@@ -369,7 +386,7 @@ python main.py --preset smoke --models ancilla_toy --results-dir results_ancilla
 python verify_results.py --results-dir results_ancilla_smoke
 ```
 
-### report 생성
+### Report generation
 
 ```bash
 python -m quddpm_lite.report --results-dir results_readme_twohour --out results_readme_twohour/report.md
@@ -397,7 +414,7 @@ verify.py         : 결과 검증
 
 ---
 
-## 논의
+## Discussion
 
 본 프로젝트의 핵심은 단순 성능 수치가 아니라, 비교 설계의 타당성이다. QuDDPM 계열 모델을 비교할 때 reconstruction fidelity만 보면 baseline이 유리해 보일 수 있다. 그러나 prior-based generation metric, total resource metric, parameter count, corruption severity를 함께 보면 다른 결론이 나온다. 본 저장소는 이러한 다중 관점 평가를 작은 규모에서 실험하기 위해 설계되었다.
 
@@ -409,7 +426,13 @@ verify.py         : 결과 검증
 
 ---
 
-## 한계와 위협 요인
+## Conclusion
+
+본 프로젝트는 QuDDPM 계열 문제를 본선 대비용으로 축소해 실험할 수 있는 연구형 sandbox로서는 충분히 의미 있는 상태다. 현재 benchmark 기준으로 `quddpm_baseline`은 reconstruction fidelity에서 강점을 보였고, `msquddpm`와 `t_msquddpm`는 generation/resource trade-off에서 더 좋은 위치를 보였으며, `cnr`는 generation-only comparator로서 가장 낮은 generation Wasserstein을 기록했다. 또한 `independent_step_quddpm`는 parameter-efficiency 해석을 위한 비용 기준점 역할을 분명히 수행했다. 따라서 이 저장소는 단일 우승 모델을 주장하기보다, generation, reconstruction, fairness calibration, parameter efficiency, resource cost를 분리해 비교하는 준비된 연구형 benchmark로 제시하는 것이 가장 적절하다.
+
+---
+
+## Limitations and Threats to Validity
 
 본 프로젝트의 결과를 해석할 때 다음 한계를 고려해야 한다.
 
@@ -439,7 +462,7 @@ verify.py         : 결과 검증
 
 ---
 
-## 향후 과제
+## Future Work
 
 1. Qiskit 또는 PennyLane 기반 transpiled circuit resource count 추가
 2. QuDDPM 공식 코드의 circle/cluster benchmark와의 구조적 비교
@@ -453,7 +476,7 @@ verify.py         : 결과 검증
 
 ---
 
-## 참고문헌
+## References
 
 - Ho et al., Denoising Diffusion Probabilistic Models.
 - Zhang et al., Generative quantum machine learning via denoising diffusion probabilistic models.
