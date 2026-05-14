@@ -1,349 +1,468 @@
-# QuDDPM-lite PyTorch Sandbox
+# QuDDPM 계열 경량 벤치마크 샌드박스
 
-이 프로젝트는 **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**입니다. 논문 완전 재현이나 하드웨어 수준 구현이 아니라, forward diffusion, denoising, prior-based generation evaluation, metric calculation, resource comparison을 팀 단위로 빠르게 실험하기 위한 PyTorch 기반 벤치마크입니다.
+> **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**  
+> 이 저장소는 논문 완전 재현이나 실제 양자 하드웨어 성능 검증을 목표로 하지 않는다. 목적은 Quantum DDPM 계열 문제를 대비하기 위해 forward diffusion, denoising, prior-based generation evaluation, metric calculation, resource comparison을 작은 규모에서 빠르게 실험하고, 각 방법의 장점과 한계를 구조적으로 비교하는 것이다.
 
-CUDA가 있으면 GPU를 사용하고, 없으면 CPU에서 실행됩니다.
+---
 
-## Abstract
+## 초록
 
-이 프로젝트는 QuDDPM/MSQuDDPM 논문 완전 재현이 아니라, **QuDDPM/MSQuDDPM 아이디어를 바탕으로 한 본선 대비용 lightweight sandbox**입니다. 목표는 작은 qubit 수에서 forward corruption, denoising, prior-based generation evaluation, fairness logging, resource comparison을 빠르게 반복 검증하는 것입니다. 현재 README benchmark 기준으로는 `cnr`가 generation comparator로 가장 낮은 Wasserstein을 보였고, `msquddpm`/`t_msquddpm`는 `quddpm_baseline`보다 generation/resource trade-off에서 더 나은 위치를 보였습니다. 반면 reconstruction fidelity는 baseline이 더 높게 나온 조건도 있었으므로, 이 저장소는 “단일 승자”를 주장하는 코드가 아니라 comparator별 강점과 한계를 함께 드러내는 연구형 sandbox로 해석하는 것이 맞습니다.
+본 프로젝트는 Quantum Denoising Diffusion Probabilistic Model, QuDDPM 계열의 핵심 구성요소를 PyTorch 기반으로 단순화하여 구현한 연구형 사전 실험 플랫폼이다. 공개된 QuDDPM 계열 연구는 quantum state ensemble을 생성 대상으로 보고, forward process에서 target quantum data를 noise 또는 scrambled distribution으로 이동시키며, reverse process에서 parameterized model을 통해 target distribution을 복원하거나 생성하는 구조를 제안한다. 본 프로젝트는 이 아이디어를 본선 해커톤 대비용으로 축소하여, 작은 qubit 수에서 random-unitary forward, depolarizing-channel forward, denoising model, one-step generator comparator, metric evaluation, resource accounting을 비교한다.
 
-## Project Scope
+핵심 목표는 단일 모델의 우수성을 주장하는 것이 아니라, 다음 질문을 실험적으로 다루는 것이다.
 
-- 논문 전체 재현이 아닙니다.
-- 본선 문제를 미리 정답 구현한 코드도 아닙니다.
-- 목표는 작은 qubit 수와 가벼운 실험 설정에서 QuDDPM 계열 workflow를 반복 검증하는 것입니다.
+1. reconstruction 성능과 prior-based generation 성능은 어떻게 다르게 나타나는가?
+2. random-unitary forward와 depolarizing-channel forward를 비교할 때, noise 강도 차이를 어떻게 통제해야 하는가?
+3. temporal parameter sharing은 step-wise independent denoiser 대비 parameter growth를 얼마나 줄이는가?
+4. one-step generator comparator는 diffusion-style model과 어떤 품질-자원 trade-off를 보이는가?
+5. resource metric을 보고할 때 explicit unitary depth, channel application count, total reverse cost를 어떻게 분리해야 하는가?
 
-Application note:
+대표 benchmark에서는 `quddpm_baseline`, `msquddpm`, `t_msquddpm`, `cnr`, `independent_step_quddpm`을 비교했다. 결과적으로 `quddpm_baseline`은 reconstruction fidelity에서 가장 높은 값을 보였지만, generation Wasserstein과 total estimated depth에서는 불리했다. `msquddpm`와 `t_msquddpm`는 baseline보다 낮은 generation Wasserstein을 보였고, independent-step baseline 대비 약 90% 수준의 parameter reduction을 보였다. `cnr`는 generation-only one-step comparator로서 가장 낮은 generation Wasserstein을 기록했다. 이러한 결과는 “특정 모델이 항상 우수하다”는 결론보다, **평가 목적에 따라 reconstruction, generation, parameter efficiency, resource cost를 분리해 해석해야 한다**는 점을 보여준다.
 
-> 이 프로젝트는 본선 세부 문제의 정답을 미리 구현한 것이 아니라, Quantum DDPM 계열 문제에 필요한 forward diffusion, denoising, generation evaluation, metric calculation, resource comparison을 팀 단위로 사전 연습하기 위한 PyTorch 기반 sandbox입니다.
+---
 
-## What Was Added In This Version
+## 프로젝트 범위
 
-- true `smoke` / `mini` preset
-- prior-based generation evaluation
-- `cnr` one-step comparator
-- cumulative depolarizing schedule
-- forward corruption logging
-- extended resource metrics
-- operational `match_corruption` calibration
-- `independent_step_quddpm` baseline and parameter-efficiency artifacts
-- `ancilla_toy` post-selection concept demo
-- markdown report generator
+이 프로젝트는 다음을 목표로 한다.
 
-## Models
+- Quantum DDPM 계열 문제를 대비하기 위한 lightweight benchmark 구성
+- quantum state ensemble 생성과 forward corruption 과정 실험
+- denoising benchmark와 prior-based generation benchmark의 분리
+- fidelity, MMD, Wasserstein distance를 활용한 ensemble-level evaluation
+- random-unitary forward와 depolarizing-channel forward의 비교 공정성 점검
+- parameter sharing과 independent-step denoiser의 parameter-efficiency 비교
+- one-step generator comparator의 generation quality 및 resource profile 확인
+- 작은 규모의 ancilla post-selection concept demo 제공
 
-| 모델 | 역할 |
+이 프로젝트는 다음을 목표로 하지 않는다.
+
+- QuDDPM, MSQuDDPM, TQuDDPM 논문 전체 재현
+- 실제 양자 하드웨어 실험 결과 주장
+- hardware-transpiled circuit resource count 제공
+- 특정 본선 문제의 정답 구현
+- CNR을 QuDDPM의 대체 모델로 주장
+- ancilla toy module을 full measurement-based QuDDPM 구현으로 주장
+
+따라서 본 저장소는 **논문 재현 코드가 아니라, 본선 대비용 연구형 sandbox**로 해석해야 한다.
+
+---
+
+## 선행연구와 문제의식
+
+### DDPM과 생성모델
+
+Denoising Diffusion Probabilistic Model, DDPM은 데이터를 점진적으로 noise화하는 forward process와, 그 역과정을 학습하는 reverse process를 통해 복잡한 데이터 분포를 생성하는 모델이다. 고전 생성모델에서 diffusion model은 안정적인 학습과 고품질 생성 능력을 보여주었고, 이 아이디어는 quantum data distribution에도 확장될 수 있다.
+
+### QuDDPM
+
+QuDDPM 계열 접근은 quantum state ensemble을 생성 대상으로 삼는다. 일반적인 구조는 다음과 같다.
+
+```text
+target quantum state ensemble
+→ forward scrambling 또는 noise process
+→ noisy / scrambled ensemble
+→ trainable reverse denoising process
+→ generated 또는 reconstructed ensemble
+```
+
+QuDDPM류 방법의 핵심은 단일 quantum state를 맞추는 것이 아니라, state ensemble의 분포를 학습한다는 점이다. 따라서 단일 fidelity만으로는 충분하지 않으며, MMD나 Wasserstein distance와 같은 ensemble-level metric이 필요하다.
+
+### MSQuDDPM 계열 아이디어
+
+Random-unitary scrambling은 표현력 측면에서는 유용하지만, explicit circuit depth와 two-qubit gate cost를 증가시킬 수 있다. MSQuDDPM 계열 아이디어는 forward process를 depolarizing noise channel로 단순화하여, random-unitary gate sequence를 직접 쌓는 부담을 줄이는 방향을 제시한다. 본 프로젝트에서는 이를 `msquddpm`와 `t_msquddpm`의 depolarizing forward로 단순화해 실험한다.
+
+### TQuDDPM 계열 아이디어
+
+Diffusion step마다 독립적인 denoiser를 두면 parameter count와 optimizer burden이 증가한다. TQuDDPM 계열 아이디어는 temporal encoding 또는 parameter sharing을 통해 step-wise parameter growth를 줄이는 방향을 제시한다. 본 프로젝트에서는 `independent_step_quddpm`을 naive upper-cost baseline으로 두고, `t_msquddpm`와 비교하여 temporal sharing의 parameter-efficiency를 관찰한다.
+
+### Classical Noise Reuploading Comparator
+
+`cnr`는 QuDDPM의 대체 모델이 아니라, one-step generator comparator이다. Target-conditioned noisy input을 사용하지 않고 latent classical noise를 입력으로 받아 generated ensemble을 만든다. 이 비교군은 diffusion-style model과 one-step generator가 각각 어떤 품질-자원 trade-off를 갖는지 보기 위한 기준선이다.
+
+---
+
+## 연구 질문
+
+본 프로젝트의 연구 질문은 다음과 같다.
+
+### RQ1. Reconstruction과 generation은 어떻게 다른가?
+
+Denoising benchmark는 target state에서 noisy input을 만든 뒤 clean target을 복원한다. 반면 generation benchmark는 target input 없이 prior에서 시작하여 generated ensemble을 만들고, 이를 target test ensemble과 비교한다. 본 프로젝트는 두 평가를 의도적으로 분리한다.
+
+### RQ2. Random-unitary forward와 depolarizing forward는 공정하게 비교되고 있는가?
+
+두 forward process는 물리적으로 동일하지 않으며, corruption strength도 자동으로 같아지지 않는다. 본 프로젝트는 final target-noisy fidelity를 operational 기준으로 삼아 forward severity를 기록하고, `match_corruption` 옵션으로 비교 조건을 맞추는 calibration을 제공한다.
+
+### RQ3. Temporal parameter sharing은 parameter growth를 줄이는가?
+
+`independent_step_quddpm`은 diffusion step마다 별도 denoiser를 갖는 naive baseline이다. `t_msquddpm`는 shared denoiser와 time conditioning을 사용한다. 두 모델의 parameter count와 quality metric을 비교하여 parameter-efficiency를 확인한다.
+
+### RQ4. One-step generator comparator는 어떤 위치에 있는가?
+
+`cnr`는 generation-only one-step comparator이다. 이 모델은 reconstruction metric이 아니라 generation MMD, generation Wasserstein, nearest fidelity로 평가한다. 이를 통해 diffusion-style model과 one-step generator의 trade-off를 비교한다.
+
+### RQ5. Resource metric은 어떻게 분리해 보고해야 하는가?
+
+Depolarizing channel의 physical cost를 explicit random-unitary depth와 동일시하면 안 된다. 따라서 본 프로젝트는 explicit unitary depth, total reverse depth, channel application count, trainable parameter count, runtime을 분리해 기록한다.
+
+---
+
+## 방법론
+
+### 전체 파이프라인
+
+```text
+quantum state ensemble 생성
+→ forward process 적용
+→ denoising model 또는 one-step generator 학습
+→ reconstruction / generation metric 분리 평가
+→ resource metric 기록
+→ fairness check 및 parameter-efficiency 분석
+→ report 생성
+```
+
+### 데이터 표현
+
+프로젝트는 작은 qubit 수의 statevector 및 density matrix를 사용한다. 주요 실험에서는 density matrix 기반 forward process와 pure-state target ensemble을 함께 다룬다. 지원되는 prior mode는 다음과 같다.
+
+| prior mode | 설명 |
 |---|---|
-| `msquddpm` | depolarizing forward를 되돌리는 기본 denoiser |
-| `quddpm_baseline` | random-unitary forward를 쓰는 baseline denoiser |
-| `t_msquddpm` | temporal sharing을 넣은 denoiser 변형 |
-| `cnr` | latent classical noise에서 직접 상태를 생성하는 one-step comparator |
-| `independent_step_quddpm` | step마다 별도 denoiser를 두는 naive upper-cost baseline |
-| `ancilla_toy` | data+ancilla PQC와 post-selection을 보여주는 concept demo |
+| `random_pure` | random complex Gaussian state를 normalize하여 prior state 생성 |
+| `maximally_mixed_jitter` | maximally mixed state와 random pure component를 소량 혼합 |
+| `depolarized_random` | random pure state를 강하게 depolarize하여 prior로 사용 |
 
-`cnr`는 QuDDPM 대체 모델이 아니라, **target-conditioned denoising 없이 latent classical noise만으로 ensemble을 생성하는 single-step comparator**입니다. post-selection 없이 resource-efficient한 비교군으로 두었습니다.
+### Forward process
 
-`ancilla_toy`는 full QuDDPM reproduction이 아니라, official reverse process의 핵심 아이디어인 data+ancilla PQC와 measurement/post-selection을 small-scale pure-state setting에서 보여주는 toy module입니다.
+본 프로젝트는 두 가지 forward corruption을 지원한다.
 
-## Presets
-
-| preset | 기본 목적 | 기본 설정 요약 |
+| forward type | 사용 모델 | 의미 |
 |---|---|---|
-| `smoke` | CPU/GPU 빠른 검증 | 2 qubits, 16 states, 1 epoch, `msquddpm` |
-| `mini` | 짧은 기능 검증 | 4 qubits, 64 states, 10 epochs, `msquddpm/t_msquddpm/cnr` |
-| `tenminute` | 짧은 단일-seed sanity benchmark | 6 qubits, 256 states, 60 epochs |
-| `twohour_readme` | README/보고용 비교 번들 | 6 qubits, 512 states, 400 epochs, single condition, 3 seeds, baseline+shared+cnr+independent, `match_corruption` on |
-| `twohour` | 기존 스타일 장시간 벤치마크 | 6 qubits, 512 states, 400 epochs |
-| `research` | 기본 연구용 defaults | 6 qubits, 512 states, 1000 epochs |
-| `full` | 더 큰 장기 실행 | 6 qubits, 1024 states, 3000 epochs |
+| `random_unitary` | `quddpm_baseline` | random-unitary scrambling baseline |
+| `depolarizing` | `msquddpm`, `t_msquddpm`, `independent_step_quddpm` | noise-channel forward surrogate |
+| `cnr_none` | `cnr` | one-step generator comparator이므로 forward corruption 없음 |
 
-## Reconstruction Vs Generation
+Depolarizing schedule은 두 가지를 지원한다.
 
-- reconstruction:
-  clean target state에서 noisy input을 만든 뒤, model이 clean state를 얼마나 복원하는지 평가합니다.
-- generation:
-  target input을 직접 주지 않고 prior에서 시작해 generated ensemble을 만들고, 그 ensemble이 target test ensemble과 얼마나 가까운지 평가합니다.
+Single-beta mode:
 
-이 둘은 의도적으로 분리되어 있으며, `metrics.csv`에는 reconstruction metric과 generation metric이 각각 따로 저장됩니다.
+```text
+rho_t = (1 - beta_t) rho_0 + beta_t I / d
+```
 
-주요 컬럼 예시는 다음과 같습니다.
+Cumulative mode:
 
-- reconstruction:
-  `reconstruction_fidelity`, `reconstruction_pure_state_fidelity`, `reconstruction_mmd`, `reconstruction_wasserstein`
-- generation:
-  `generation_mmd`, `generation_wasserstein`, `generation_nearest_fidelity_mean`, `generation_prior_mode`, `generation_sampling_mode`
+```text
+alpha_bar_t = Π_s≤t (1 - beta_s)
+rho_t = alpha_bar_t rho_0 + (1 - alpha_bar_t) I / d
+```
 
-호환성을 위해 기존 `fidelity`, `mmd`, `wasserstein` 컬럼도 유지합니다.
+### Match corruption
 
-- denoiser 계열은 reconstruction 값을 넣습니다.
-- `cnr`는 generation 지표를 넣습니다.
+`--match-corruption` 옵션은 random-unitary baseline의 final target-noisy fidelity를 기준으로 depolarizing schedule을 보정한다. 이는 두 forward process가 물리적으로 같다는 의미가 아니라, finite benchmark에서 noise severity를 operational하게 맞추기 위한 calibration이다.
 
-## Forward Processes
+기록되는 주요 컬럼은 다음과 같다.
 
-지원하는 forward corruption은 다음 두 계열입니다.
+- `match_corruption_enabled`
+- `target_corruption_fidelity`
+- `actual_forward_fidelity_mean`
+- `corruption_match_error_abs`
+- `calibrated_beta_end`
+- `calibrated_alpha_bar_final`
+- `corruption_match_method`
 
-- `random_unitary`
-  `quddpm_baseline`에 사용됩니다.
-- `depolarizing`
-  `msquddpm`, `t_msquddpm`, `independent_step_quddpm`에 사용됩니다.
+### 모델
 
-depolarizing schedule은 두 모드를 지원합니다.
+| 모델 | 역할 | 핵심 해석 |
+|---|---|---|
+| `quddpm_baseline` | random-unitary baseline denoiser | explicit unitary scrambling baseline |
+| `msquddpm` | depolarizing forward denoiser | noise-channel forward surrogate |
+| `t_msquddpm` | temporal-sharing denoiser | parameter sharing 기반 변형 |
+| `cnr` | one-step generator comparator | latent noise에서 직접 generated ensemble 생성 |
+| `independent_step_quddpm` | step-wise independent baseline | parameter growth reference |
+| `ancilla_toy` | post-selection concept demo | data+ancilla PQC와 measurement idea 확인 |
 
-- `single_beta`
-  `rho_t = (1 - beta_t) rho_0 + beta_t I / d`
-- `cumulative`
-  `rho_t = alpha_bar_t rho_0 + (1 - alpha_bar_t) I / d`
+### 평가 지표
 
-`noise_curve.csv`에는 다음 컬럼이 저장됩니다.
+Reconstruction metric:
 
-- `step`
-- `beta`
-- `alpha`
-- `alpha_bar`
-- `expected_fidelity_single_beta`
-- `expected_fidelity_cumulative`
+- `reconstruction_fidelity`
+- `reconstruction_pure_state_fidelity`
+- `reconstruction_mmd`
+- `reconstruction_wasserstein`
 
-## Match Corruption
+Generation metric:
 
-- random-unitary baseline과 depolarizing forward는 corruption severity가 자동으로 같아지지 않습니다.
-- 그래서 `--match-corruption` 옵션은 final target-noisy fidelity를 기준으로 depolarizing schedule을 operational하게 맞춥니다.
-- 이 기능의 목적은 “우리 모델이 더 좋다”가 아니라, **공정 비교를 위해 noise 강도를 통제하는 것**입니다.
-- 이는 완벽한 물리적 동등성 보장이 아니라, finite benchmark에서의 operational fairness calibration입니다.
+- `generation_mmd`
+- `generation_wasserstein`
+- `generation_nearest_fidelity_mean`
+- `generation_prior_mode`
+- `generation_sampling_mode`
 
-## Fairness And Limitations
+Resource metric:
 
-- random-unitary forward와 depolarizing forward는 corruption strength가 자동으로 같아지지 않습니다.
-- 그래서 각 run에 `forward_final_target_noisy_fidelity_mean`과 `forward_process_type`을 같이 기록합니다.
-- `match_corruption`을 켜면 `target_corruption_fidelity`, `actual_forward_fidelity_mean`, `corruption_match_error_abs`도 같이 저장됩니다.
-- generation evaluation은 prior-based이지만, 현재 reverse chain은 논문 수준의 exact Markov sampler가 아니라 lightweight surrogate입니다.
-- `cnr`는 QuDDPM 대체가 아니라 comparator입니다.
-- `ancilla_toy`는 pure-state toy setting 중심이며, full measurement-based QuDDPM 구현이 아닙니다.
-- resource metrics는 실제 hardware transpilation count가 아니라 heuristic estimate입니다.
-
-명시적으로, **estimated resource metrics are heuristic, not transpiled hardware counts** 입니다.
-
-또한 depolarizing channel의 physical cost를 explicit unitary depth와 동일시하지 않기 위해, `channel_application_count`를 별도 컬럼으로 분리해 기록합니다.
-
-## Resource Metrics
-
-`metrics.csv`에는 기존 parameter/depth 추정 외에 다음 컬럼이 추가되었습니다.
-
+- `trainable_parameters`
 - `denoiser_depth_per_step`
-- `denoiser_two_qubit_gates_per_step`
-- `denoiser_single_qubit_rotations_per_step`
 - `total_reverse_depth`
-- `total_reverse_two_qubit_gate_count`
-- `total_reverse_single_qubit_rotation_count`
 - `forward_unitary_depth`
-- `forward_two_qubit_gate_count`
 - `channel_application_count`
 - `total_estimated_depth`
 - `total_estimated_two_qubit_gate_count`
-- `generation_call_count`
-- `resource_notes`
+- `runtime_sec`
 
-요약 집계는 `summary_table.csv`에 들어가며, generation quality와 total resource 평균도 함께 저장됩니다.
+Post-selection metric:
 
-## Parameter Efficiency
+- `success_probability_mean`
+- `success_probability_std`
+- `post_selection_required`
+- `ancilla_qubits`
 
-- Temporal parameter sharing은 실행 회로 depth를 직접 줄이는 것이 아니라, 주로 trainable parameter count와 optimizer burden을 줄이는 설계입니다.
-- 그래서 `t_msquddpm`은 `independent_step_quddpm`과 같이 봐야 의미가 드러납니다.
-- 이 프로젝트에서는 `independent_step_quddpm`을 naive upper-cost baseline으로 두고, `t_msquddpm`과 parameter/quality trade-off를 비교합니다.
-- 해당 비교 역시 lightweight benchmark 기준이며, 논문 전체 재현 결과가 아닙니다.
+---
 
-## README Benchmark Snapshot
+## 대표 벤치마크
 
-아래 그림은 `twohour_readme` preset을 실제로 실행한 결과입니다.
+README용 대표 결과는 `twohour_readme` preset으로 생성했다.
 
-- command:
-  `python main.py --preset twohour_readme --results-dir results_readme_twohour`
-- artifacts:
-  [report.md](results_readme_twohour/report.md), [summary_table.csv](results_readme_twohour/summary_table.csv), [parameter_efficiency_table.csv](results_readme_twohour/parameter_efficiency_table.csv)
+```bash
+python main.py --preset twohour_readme --results-dir results_readme_twohour
+```
 
-### 1. Generation Quality
+실험 조건은 다음과 같다.
+
+| 항목 | 값 |
+|---|---|
+| qubits | 6 |
+| dataset size | 512 |
+| noise steps | 10 |
+| depth | 2 |
+| hidden dim | 96 |
+| epochs | 400 |
+| seeds | 3 |
+| models | `quddpm_baseline`, `msquddpm`, `t_msquddpm`, `cnr`, `independent_step_quddpm` |
+| depolarizing mode | `single_beta` |
+| prior mode | `depolarized_random` |
+| generation sampling | `one_step` |
+| match corruption | enabled |
+
+### 결과 요약
+
+| 모델 | Reconstruction Fidelity ↑ | Generation MMD ↓ | Generation Wasserstein ↓ | Nearest Fidelity ↑ | Params ↓ | Total Depth ↓ | Runtime sec ↓ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `cnr` | N/A | 0.0664 | 0.6421 | 0.4918 | 12,912 | 34 | 51.90 |
+| `independent_step_quddpm` | 0.1784 | 0.7695 | 0.8213 | 0.9041 | 8,012,960 | 340 | 707.85 |
+| `msquddpm` | 0.1772 | 0.7416 | 0.8145 | 0.8799 | 801,800 | 340 | 51.33 |
+| `quddpm_baseline` | 0.2144 | 0.8850 | 0.8649 | 0.6631 | 801,800 | 680 | 66.06 |
+| `t_msquddpm` | 0.1653 | 0.5769 | 0.8096 | 0.6452 | 801,264 | 340 | 51.58 |
+
+해석은 다음과 같다.
+
+1. `quddpm_baseline`은 reconstruction fidelity에서 가장 높은 값을 보였지만, generation Wasserstein과 total estimated depth에서는 불리했다.
+2. `msquddpm`와 `t_msquddpm`는 baseline보다 낮은 generation Wasserstein을 보였으며, total estimated depth도 baseline의 절반 수준이다.
+3. `t_msquddpm`는 `msquddpm`보다 reconstruction fidelity는 낮지만, generation MMD와 Wasserstein에서는 더 좋은 값을 보였다.
+4. `independent_step_quddpm`는 parameter count와 runtime이 매우 크며, 이 모델은 품질 우월성을 보이기보다 step-wise independent parameterization의 비용을 보여주는 reference이다.
+5. `cnr`는 generation-only comparator로서 가장 낮은 generation Wasserstein을 보였지만, QuDDPM 대체 모델이 아니라 one-step generator baseline으로 해석해야 한다.
+
+### Parameter efficiency
+
+`independent_step_quddpm` 대비 parameter reduction은 다음과 같다.
+
+| 모델 | Parameter Ratio vs Independent | Parameter Reduction |
+|---|---:|---:|
+| `cnr` | 0.0016 | 99.84% |
+| `msquddpm` | 0.1001 | 89.99% |
+| `quddpm_baseline` | 0.1001 | 89.99% |
+| `t_msquddpm` | 0.1000 | 90.00% |
+| `independent_step_quddpm` | 1.0000 | 0.00% |
+
+이 결과는 temporal/shared denoiser 계열이 step-wise independent denoiser 대비 optimizer burden을 크게 줄일 수 있음을 보여준다. 다만 이 결과는 lightweight benchmark 조건에서의 비교이며, 논문 전체 재현 결과로 해석하면 안 된다.
+
+---
+
+## 그림
+
+대표 결과 폴더는 `results_readme_twohour/`이다.
+
+- Generation quality: `results_readme_twohour/generation_quality_comparison.png`
+- Total resource trade-off: `results_readme_twohour/total_resource_tradeoff.png`
+- Parameter efficiency: `results_readme_twohour/parameter_efficiency.png`
+- Quality vs parameters: `results_readme_twohour/quality_vs_params.png`
+- Parameter reduction vs quality: `results_readme_twohour/parameter_reduction_vs_quality.png`
+- Report: `results_readme_twohour/report.md`
+
+### Generation quality
 
 ![Generation quality comparison](results_readme_twohour/generation_quality_comparison.png)
 
-- `cnr`는 generation-only one-step comparator로서 가장 낮은 generation Wasserstein (`0.6421`)을 기록했습니다.
-- `msquddpm`와 `t_msquddpm`는 `quddpm_baseline`보다 더 낮은 generation Wasserstein (`0.8145`, `0.8096` vs `0.8649`)을 기록했습니다.
-- `independent_step_quddpm`는 shared 계열보다 generation metric이 약간 불리했고 (`0.8213`), 아래 parameter figure와 같이 비용은 훨씬 큽니다.
+이 그림은 generation Wasserstein 기준 비교다. `cnr`가 가장 낮은 값을 보이며 generation-only comparator로서는 가장 강하게 나타난다. `msquddpm`와 `t_msquddpm`는 `quddpm_baseline`보다 더 낮은 generation Wasserstein을 보여, generation benchmark에서는 shared depolarizing 계열이 baseline보다 유리한 위치를 갖는다.
 
-### 2. Resource Tradeoff
+### Total resource trade-off
 
 ![Total resource tradeoff](results_readme_twohour/total_resource_tradeoff.png)
 
-- `quddpm_baseline`은 reconstruction 쪽 평균은 가장 높았지만, total estimated depth가 `680`으로 가장 큽니다.
-- `msquddpm`, `t_msquddpm`, `independent_step_quddpm`는 depth `340` 구간에 모이지만 generation quality는 shared 계열이 더 유리합니다.
-- `cnr`는 depth `34` 수준의 one-step comparator라서, reverse diffusion 계열과는 다른 비용/품질 위치에 있습니다.
+이 그림은 total estimated depth와 generation Wasserstein을 함께 본다. `quddpm_baseline`은 depth가 가장 크고 generation metric도 불리하다. `msquddpm`와 `t_msquddpm`는 더 낮은 depth 구간에서 더 나은 generation metric을 보여, 비용-품질 trade-off가 더 좋은 쪽에 위치한다. `cnr`는 one-step comparator이므로 depth가 매우 낮은 별도 위치를 형성한다.
 
-### 3. Parameter Efficiency
+### Parameter efficiency
 
 ![Parameter efficiency](results_readme_twohour/parameter_efficiency.png)
 
-- `independent_step_quddpm`는 step별 독립 denoiser 때문에 약 `8,012,960` trainable parameters를 가집니다.
-- `msquddpm`는 약 `801,800`, `t_msquddpm`는 약 `801,264` parameters로, independent baseline 대비 약 `90%` parameter reduction을 보입니다.
-- 이 비교는 temporal parameter sharing이 “품질을 조금 희생하더라도 optimizer burden과 parameter growth를 크게 줄이는 설계”라는 점을 보여줍니다.
+이 그림은 `independent_step_quddpm` 대비 shared 계열의 parameter 절감을 직관적으로 보여준다. `independent_step_quddpm`는 약 8.0M parameters를 가지는 반면, `msquddpm`와 `t_msquddpm`는 약 0.8M 수준이다. 따라서 temporal/shared denoiser 계열이 step-wise independent parameterization보다 훨씬 작은 optimizer burden으로 동작함을 확인할 수 있다.
 
-### 4. Parameter Reduction Vs Quality
+### Quality vs parameters
+
+![Quality vs parameters](results_readme_twohour/quality_vs_params.png)
+
+이 그림은 reconstruction fidelity와 parameter 수를 함께 본다. `quddpm_baseline`은 reconstruction fidelity가 가장 높지만, 그 자체가 generation quality 우위를 보장하지는 않는다. `independent_step_quddpm`는 훨씬 많은 parameters를 사용하지만 reconstruction fidelity가 baseline을 크게 넘지 못한다는 점에서, parameter 증가가 곧바로 품질 우월성으로 이어지지 않음을 보여준다.
+
+### Parameter reduction vs quality
 
 ![Parameter reduction vs quality](results_readme_twohour/parameter_reduction_vs_quality.png)
 
-- `msquddpm`와 `t_msquddpm`는 independent baseline 대비 약 `90%` parameter reduction을 유지하면서 quality drop을 크게 키우지 않았습니다.
-- 이 run에서는 `t_msquddpm`가 generation metric에서는 `msquddpm`보다 약간 더 좋았고, reconstruction fidelity는 약간 낮았습니다.
-- 즉, 본 결과는 `T-MSQuDDPM-lite`가 “항상 우세”라기보다, shared parameterization으로 더 좋은 parameter/resource trade-off를 제공한다는 쪽에 가깝습니다.
+이 그림은 independent baseline 대비 parameter reduction과 quality 변화를 함께 보여준다. `msquddpm`와 `t_msquddpm`는 약 90% parameter reduction을 달성하면서 품질 저하를 크게 늘리지 않았다. 특히 `t_msquddpm`는 reconstruction fidelity는 다소 낮지만 generation metric에서는 경쟁력 있는 값을 보이며, parameter-efficient shared denoiser의 실용적 의미를 드러낸다.
 
-요약:
+### Full report
 
-- generation comparator로는 `cnr`가 가장 강했습니다.
-- shared QuDDPM 계열(`msquddpm`, `t_msquddpm`)은 baseline보다 generation/resource 쪽에서 더 좋은 위치를 보였습니다.
-- baseline은 reconstruction fidelity에서 강점을 보였지만, 비용이 컸습니다.
-- `match_corruption`은 physical equivalence가 아니라 operational fairness calibration이며, 이 결과도 그 전제 아래 해석해야 합니다.
+[report.md](results_readme_twohour/report.md)
 
-## Discussion
+---
 
-- 이 결과는 reconstruction benchmark와 generation benchmark를 분리해서 봐야 의미가 있습니다. `quddpm_baseline`은 reconstruction fidelity에서 가장 강했지만, generation Wasserstein과 total estimated depth에서는 불리했습니다.
-- `msquddpm`와 `t_msquddpm`는 baseline 대비 generation metric과 resource metric에서 더 좋은 위치를 보였습니다. 특히 `t_msquddpm`는 `msquddpm`보다 generation 쪽이 약간 더 좋고 parameter 수는 거의 같은 수준이라, temporal sharing의 실용적 의미를 보여줍니다.
-- `independent_step_quddpm`는 shared 계열보다 약 `10x` 큰 파라미터 수와 매우 긴 runtime을 보여줬습니다. 이 baseline은 품질 우월성을 보여주기보다, step-wise 독립 파라미터화가 실제로 얼마나 비싼지 보여주는 reference로 보는 편이 맞습니다.
-- `cnr`는 generation-only one-step comparator로서는 매우 강하게 나왔지만, QuDDPM 대체 모델로 읽으면 안 됩니다. reconstruction과 reverse diffusion 구조를 직접 비교하는 대상이 아니라, lightweight comparator입니다.
-- `match_corruption`은 random-unitary와 depolarizing forward를 물리적으로 동일하게 만드는 기능이 아니라, finite benchmark에서 final target-noisy fidelity를 맞추는 operational fairness calibration입니다.
+## 재현 방법
 
-## Conclusion
+### 설치
 
-이 저장소는 본선 문제의 정답 구현이 아니라, QuDDPM 계열 아이디어를 실험 설계 관점에서 준비하기 위한 benchmark sandbox로서는 충분히 의미 있는 상태입니다. 현재 결과만 보면 `cnr`는 generation comparator로 강하고, shared QuDDPM 계열은 baseline 대비 generation/resource trade-off에서 유리하며, `independent_step_quddpm`는 parameter-efficiency 비교를 위한 기준점 역할을 잘 수행합니다. 따라서 발표나 신청서에서는 “무조건 최고 성능”보다, 공정 비교, generation/reconstruction 분리, parameter efficiency, limitation 명시가 함께 들어간 준비된 연구형 sandbox라는 점을 전면에 두는 것이 가장 설득력 있습니다.
+```bash
+pip install -r requirements.txt
+```
 
-## Outputs
+CUDA가 있으면 GPU를 사용하고, 없으면 CPU에서 실행된다.
 
-실행하면 결과 폴더에 보통 아래 파일들이 생성됩니다.
-
-- `metrics.csv`
-- `summary_table.csv`
-- `seed_summary.csv`
-- `loss_history.csv`
-- `noise_curve.csv`
-- `fidelity_comparison.png`
-- `mmd_wasserstein_comparison.png`
-- `resource_tradeoff.png`
-- `fidelity_vs_noise.png`
-- `generation_quality_comparison.png`
-- `total_resource_tradeoff.png`
-- `parameter_efficiency_table.csv`
-- `parameter_efficiency.png`
-- `quality_vs_params.png`
-- `parameter_reduction_vs_quality.png`
-- 모델별 `loss_curve_*.png`
-
-## Recommended Commands
-
-smoke:
+### 빠른 smoke test
 
 ```bash
 python main.py --preset smoke --results-dir results_smoke
 python verify_results.py --results-dir results_smoke
 ```
 
-mini with CNR:
+### mini benchmark
 
 ```bash
 python main.py --preset mini --models msquddpm t_msquddpm cnr --results-dir results_mini
 python verify_results.py --results-dir results_mini
 ```
 
-twohour original benchmark:
-
-```bash
-python main.py --preset twohour --results-dir results_twohour_new
-python verify_results.py --results-dir results_twohour_new
-```
-
-twohour README bundle:
-
-```bash
-python main.py --preset twohour_readme --results-dir results_readme_twohour
-python verify_results.py --results-dir results_readme_twohour
-python -m quddpm_lite.report --results-dir results_readme_twohour --out results_readme_twohour/report.md
-```
-
-tenminute sanity benchmark:
-
-```bash
-python main.py --preset tenminute --results-dir results_tenminute
-python verify_results.py --results-dir results_tenminute
-```
-
-baseline-only smoke:
-
-```bash
-python main.py --preset smoke --models quddpm_baseline --results-dir results_smoke_baseline
-python verify_results.py --results-dir results_smoke_baseline
-```
-
-match corruption smoke:
+### match corruption smoke
 
 ```bash
 python main.py --preset smoke --models quddpm_baseline msquddpm --match-corruption --results-dir results_match_smoke
 python verify_results.py --results-dir results_match_smoke
 ```
 
-parameter efficiency mini:
+### parameter efficiency benchmark
 
 ```bash
 python main.py --preset mini --models independent_step_quddpm t_msquddpm msquddpm --results-dir results_param_eff
 python verify_results.py --results-dir results_param_eff
 ```
 
-ancilla toy smoke:
+### ancilla toy smoke
 
 ```bash
 python main.py --preset smoke --models ancilla_toy --results-dir results_ancilla_smoke
 python verify_results.py --results-dir results_ancilla_smoke
 ```
 
-report generation:
+### report 생성
 
 ```bash
-python -m quddpm_lite.report --results-dir results_mini --out results_mini/report.md
+python -m quddpm_lite.report --results-dir results_readme_twohour --out results_readme_twohour/report.md
 ```
 
-## CLI Notes
+---
 
-자주 쓰는 옵션은 아래와 같습니다.
-
-- `--models quddpm_baseline msquddpm t_msquddpm cnr independent_step_quddpm ancilla_toy`
-- `--dataset-kind cluster1q`
-- `--depolarizing-mode cumulative`
-- `--prior-mode random_pure|maximally_mixed_jitter|depolarized_random`
-- `--generation-sampling-mode one_step|iterative`
-- `--match-corruption`
-
-## Code Layout
+## Repository layout
 
 ```text
-.
-├── main.py
-├── verify_results.py
-├── src/quddpm_lite/
-│   ├── cli.py
-│   ├── config.py
-│   ├── datasets.py
-│   ├── experiments.py
-│   ├── metrics.py
-│   ├── models.py
-│   ├── ancilla.py
-│   ├── noise.py
-│   ├── random_unitary.py
-│   ├── report.py
-│   ├── train.py
-│   ├── utils.py
-│   ├── verify.py
-│   └── visualize.py
-└── results_twohour/
+config.py         : preset과 실험 설정
+cli.py            : command-line arguments
+main.py           : benchmark entry point
+datasets.py       : quantum state ensemble 생성
+noise.py          : depolarizing schedule, corruption calibration
+random_unitary.py : random-unitary forward process
+models.py         : denoiser, CNR, independent-step, ancilla toy models
+train.py          : reconstruction / generation training and evaluation
+metrics.py        : fidelity, MMD, Wasserstein, resource metrics
+experiments.py    : benchmark 실행과 summary 생성
+visualize.py      : 결과 plot 생성
+report.py         : markdown report 생성
+verify.py         : 결과 검증
 ```
 
-## Setup
+---
 
-```bash
-python3 -m venv .venv --system-site-packages
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-```
+## 논의
+
+본 프로젝트의 핵심은 단순 성능 수치가 아니라, 비교 설계의 타당성이다. QuDDPM 계열 모델을 비교할 때 reconstruction fidelity만 보면 baseline이 유리해 보일 수 있다. 그러나 prior-based generation metric, total resource metric, parameter count, corruption severity를 함께 보면 다른 결론이 나온다. 본 저장소는 이러한 다중 관점 평가를 작은 규모에서 실험하기 위해 설계되었다.
+
+특히 `match_corruption`은 중요한 기능이다. Random-unitary forward와 depolarizing forward는 서로 다른 물리적 process이므로, final target-noisy fidelity를 기준으로 operational severity를 맞추는 것은 완벽한 물리적 동일성을 의미하지 않는다. 그러나 baseline이 noise 강도 차이 때문에 과도하게 불리해지는 것을 막고, finite benchmark에서 비교 공정성을 높이는 데 유용하다.
+
+또한 `independent_step_quddpm`은 성능을 높이기 위한 모델이라기보다, step-wise independent parameterization이 얼마나 비싼지 보여주는 비용 기준점이다. 이 기준점이 있어야 `t_msquddpm`와 같은 temporal/shared denoiser의 parameter-efficiency를 해석할 수 있다.
+
+`cnr`는 가장 낮은 generation Wasserstein을 보였지만, 이를 QuDDPM 대체 모델이라고 해석하면 안 된다. 이 모델은 target-conditioned denoising이나 reverse diffusion chain을 사용하지 않는 one-step generator comparator이다. 따라서 CNR의 의미는 “diffusion-style model이 아니어도 generation-only setting에서는 강한 비교군이 될 수 있다”는 데 있다.
+
+---
+
+## 한계와 위협 요인
+
+본 프로젝트의 결과를 해석할 때 다음 한계를 고려해야 한다.
+
+1. **논문 완전 재현 아님**  
+   이 저장소는 QuDDPM, MSQuDDPM, TQuDDPM 논문 전체를 재현하지 않는다. 핵심 아이디어를 본선 대비용으로 단순화한 sandbox이다.
+
+2. **Small-scale benchmark**  
+   대표 실험은 6 qubit, 512 samples, 단일 noise-step/depth 조건을 중심으로 한다. 더 큰 qubit 수나 더 복잡한 dataset에서는 결과가 달라질 수 있다.
+
+3. **Heuristic resource metric**  
+   total estimated depth와 two-qubit gate count는 hardware-transpiled circuit count가 아니다. 실제 장비 topology, compiler, gate set에 따라 resource cost는 달라질 수 있다.
+
+4. **Depolarizing channel cost 해석 주의**  
+   Depolarizing forward는 explicit unitary depth를 줄이는 surrogate로 사용되지만, physical implementation cost가 0이라는 뜻은 아니다. 따라서 `channel_application_count`를 별도 기록한다.
+
+5. **Match corruption은 operational calibration**  
+   `match_corruption`은 final target-noisy fidelity를 맞추는 기능이지, random-unitary와 depolarizing process가 물리적으로 동일함을 보장하지 않는다.
+
+6. **Generation sampler의 단순화**  
+   현재 prior-based generation은 lightweight surrogate이며, 논문 수준의 exact reverse Markov sampler가 아니다.
+
+7. **CNR의 해석 범위**  
+   `cnr`는 QuDDPM 대체 모델이 아니라 one-step generation comparator이다. Reconstruction metric이 없거나 NaN으로 기록될 수 있다.
+
+8. **Ancilla toy의 제한**  
+   `ancilla_toy`는 small pure-state setting에서 data+ancilla post-selection 구조를 보여주는 concept demo이다. Full measurement-based QuDDPM reverse process가 아니다.
+
+---
+
+## 향후 과제
+
+1. Qiskit 또는 PennyLane 기반 transpiled circuit resource count 추가
+2. QuDDPM 공식 코드의 circle/cluster benchmark와의 구조적 비교
+3. TFIM, GHZ-like, Bell-cluster 등 더 양자적인 dataset 확장
+4. Iterative reverse sampling의 안정성 개선
+5. Ancilla measurement module의 density-matrix setting 확장
+6. Multiple noise-step/depth grid에서 더 큰 ablation 수행
+7. Hardware noise model과 coupling map을 반영한 resource-aware benchmark 추가
+8. Wasserstein 계산의 scalability 개선
+9. 논문 공식 metric과 본 프로젝트 metric의 차이 정량화
+
+---
+
+## 참고문헌
+
+- Ho et al., Denoising Diffusion Probabilistic Models.
+- Zhang et al., Generative quantum machine learning via denoising diffusion probabilistic models.
+- Kwun et al., Mixed-State Quantum Denoising Diffusion Probabilistic Model.
+- Zhang and Chen, Parameter-efficient Quantum Denoising Diffusion Probabilistic Models with temporal encoding.
+- Wang and Wu, Generation via Classical Noise Reuploading.
+
+---
+
+## Application note
+
+이 프로젝트는 본선 세부 문제의 정답을 미리 구현한 것이 아니라, Quantum DDPM 계열 문제에 필요한 forward diffusion, denoising, generation evaluation, metric calculation, resource comparison을 팀 단위로 사전 연습하기 위한 PyTorch 기반 sandbox이다. Reconstruction metric과 generation metric을 분리하고, CNR comparator, independent-step baseline, match-corruption calibration, ancilla toy module을 포함함으로써, 단순 구현보다 공정 비교와 한계 인식을 중시하는 연구형 준비 과정을 지향한다.
